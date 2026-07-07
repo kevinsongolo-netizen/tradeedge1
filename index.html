@@ -1762,7 +1762,7 @@ function setSyncStatus(status) {
     if (signInBtn) signInBtn.style.display = 'none';
     if (signOutBtn) signOutBtn.style.display = 'inline-flex';
     if (currentUser) {
-      el.textContent = '● ' + currentUser.email;
+      el.title = currentUser.email; // hover to see which account is synced
     }
   }
 }
