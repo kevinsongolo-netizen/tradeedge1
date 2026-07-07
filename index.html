@@ -1740,15 +1740,31 @@ async function pullAllFromCloud() {
 
 function setSyncStatus(status) {
   const el = document.getElementById('sync-status-indicator');
+  const signInBtn = document.getElementById('sync-signin-btn');
+  const signOutBtn = document.getElementById('sync-signout-btn');
   if (!el) return;
+  
   const labels = {
     synced: '● Synced',
     syncing: '● Syncing…',
     error: '● Sync error',
-    offline: '○ Local only (not signed in)'
+    offline: '○ Local only'
   };
+  
   el.textContent = labels[status] || '';
   el.setAttribute('data-status', status);
+
+  if (status === 'offline' || status === 'error') {
+    if (signInBtn) signInBtn.style.display = 'inline-flex';
+    if (signOutBtn) signOutBtn.style.display = 'none';
+    if (status === 'offline') el.textContent = '○ Local only';
+  } else {
+    if (signInBtn) signInBtn.style.display = 'none';
+    if (signOutBtn) signOutBtn.style.display = 'inline-flex';
+    if (currentUser) {
+      el.textContent = '● ' + currentUser.email;
+    }
+  }
 }
 
 // Merge remote + local by simply preferring whichever was written most recently.
