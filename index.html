@@ -1825,12 +1825,15 @@ async function signOutCloud() {
   setSyncStatus('offline');
 }
 
+let realtimeChannel = null;
+
 async function initCloudSync() {
   if (!cloudSyncEnabled) { setSyncStatus('offline'); return; }
   const { data: { session } } = await supabaseClient.auth.getSession();
   currentUser = session ? session.user : null;
   if (currentUser) {
     await syncOnSignIn();
+    setupRealtime();
   } else {
     setSyncStatus('offline');
   }
@@ -1838,10 +1841,62 @@ async function initCloudSync() {
     currentUser = session ? session.user : null;
     if (currentUser) {
       await syncOnSignIn();
+      setupRealtime();
     } else {
       setSyncStatus('offline');
+      if (realtimeChannel) {
+        supabaseClient.removeChannel(realtimeChannel);
+        realtimeChannel = null;
+      }
     }
   });
+}
+
+function setupRealtime() {
+  if (realtimeChannel) return;
+  realtimeChannel = supabaseClient
+    .channel('public:te_data')
+    .on('postgres_changes', { 
+      event: '*', 
+      schema: 'public', 
+      table: 'te_data', 
+      filter: `user_id=eq.${currentUser.id}` 
+    }, (payload) => {
+      const { key, value } = payload.new;
+      if (key && value) {
+        // Only update if the incoming data is different to avoid loops
+        if (JSON.stringify(state[key.replace('te_', '')] || state[key]) !== JSON.stringify(value)) {
+          console.log('Realtime update received for:', key);
+          
+          const stateKey = key === 'te_rules' ? 'rules' :
+                           key === 'te_accounts' ? 'accounts' :
+                           key === 'te_current_account' ? 'currentAccount' :
+                           key === 'te_journal' ? 'journal' :
+                           key === 'te_checklist' ? 'checklistState' :
+                           key === 'te_notes' ? 'notes' :
+                           key === 'te_account_settings' ? 'accountSettings' : null;
+          
+          if (stateKey) {
+            state[stateKey] = value;
+            localStorage.setItem(key, JSON.stringify(value));
+            
+            // Re-render UI based on what changed
+            if (stateKey === 'rules') renderRules();
+            if (stateKey === 'accounts' || stateKey === 'currentAccount') {
+              initAccountSelector();
+              renderJournal();
+              renderNotes();
+            }
+            if (stateKey === 'journal') renderJournal();
+            if (stateKey === 'notes') renderNotes();
+            if (stateKey === 'checklistState') renderRules(); // Checklist is part of rules UI
+            
+            setSyncStatus('synced');
+          }
+        }
+      }
+    })
+    .subscribe();
 }
 
 let state = {
