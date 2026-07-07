@@ -1829,20 +1829,33 @@ let realtimeChannel = null;
 
 async function initCloudSync() {
   if (!cloudSyncEnabled) { setSyncStatus('offline'); return; }
+  
+  // 1. Initial check for existing session
   const { data: { session } } = await supabaseClient.auth.getSession();
   currentUser = session ? session.user : null;
+  
   if (currentUser) {
+    console.log('Session found on load:', currentUser.email);
     await syncOnSignIn();
     setupRealtime();
   } else {
+    console.log('No session found on load.');
     setSyncStatus('offline');
   }
+
+  // 2. Listen for auth changes (sign in/out, magic link return)
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
-    currentUser = session ? session.user : null;
-    if (currentUser) {
+    console.log('Auth event:', event);
+    const newUser = session ? session.user : null;
+    
+    // Only re-sync if the user has actually changed or signed in
+    if (newUser && (!currentUser || newUser.id !== currentUser.id)) {
+      currentUser = newUser;
       await syncOnSignIn();
       setupRealtime();
-    } else {
+    } else if (!newUser && currentUser) {
+      // User signed out
+      currentUser = null;
       setSyncStatus('offline');
       if (realtimeChannel) {
         supabaseClient.removeChannel(realtimeChannel);
