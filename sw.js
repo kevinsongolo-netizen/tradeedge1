@@ -1,29 +1,16 @@
 const CACHE_NAME = 'tradeedge-cache-v2';
 const APP_SHELL = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/icon-maskable-512.png'
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return Promise.all(
-        APP_SHELL.map(url => {
-          return fetch(url).then(response => {
-            if (response.ok) {
-              return cache.put(url, response);
-            }
-            console.warn('Failed to cache:', url);
-          }).catch(err => {
-            console.warn('Error caching:', url, err);
-          });
-        })
-      );
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
   self.skipWaiting();
 });
@@ -37,7 +24,6 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Cache-first for the app shell, network-first (with cache fallback) for everything else
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -50,10 +36,8 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then((cached) => {
         const fetchPromise = fetch(req)
           .then((res) => {
-            if (res.ok) {
-              const resClone = res.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
-            }
+            const resClone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
             return res;
           })
           .catch(() => cached);
@@ -61,7 +45,6 @@ self.addEventListener('fetch', (event) => {
       })
     );
   } else {
-    // Third-party (fonts, CDN scripts, Supabase API) — try network, fall back to cache
     event.respondWith(
       fetch(req)
         .then((res) => {
