@@ -1356,6 +1356,10 @@ body::before {
             <th>Lots</th>
             <th>Entry</th>
             <th>Exit</th>
+            <th>R:R</th>
+            <th>POI</th>
+            <th>Session</th>
+            <th>Exit Reason</th>
             <th>P&L ($)</th>
             <th>Outcome</th>
             <th>Notes</th>
@@ -1430,6 +1434,22 @@ body::before {
         <div id="day-performance-container"></div>
       </div>
     </div>
+    <div class="review-columns" id="poi-session-columns" style="margin-bottom:1.5rem;">
+      <div class="review-column" id="poi-performance-card">
+        <h3><span class="dot" style="background:var(--purple)"></span> Performance by POI</h3>
+        <div id="poi-performance-container"></div>
+      </div>
+      <div class="review-column" id="session-performance-card">
+        <h3><span class="dot" style="background:var(--accent)"></span> Performance by Session</h3>
+        <div id="session-performance-container"></div>
+      </div>
+    </div>
+    <div class="review-columns" id="exit-reason-columns" style="margin-bottom:1.5rem;">
+      <div class="review-column" id="exit-reason-performance-card" style="grid-column:1/-1">
+        <h3><span class="dot" style="background:var(--red)"></span> Performance by Exit Reason</h3>
+        <div id="exit-reason-performance-container"></div>
+      </div>
+    </div>
     <div class="review-columns">
       <div class="review-column" id="review-worked">
         <h3><span class="dot" style="background:var(--green)"></span> What Worked</h3>
@@ -1463,7 +1483,7 @@ body::before {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Direction</label>
-          <select class="form-select" id="j-direction">
+          <select class="form-select" id="j-direction" onchange="calculatePL()">
             <option value="buy">Buy / Long</option>
             <option value="sell">Sell / Short</option>
           </select>
@@ -1496,11 +1516,11 @@ body::before {
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Stop Loss</label>
-          <input type="number" step="any" class="form-input" id="j-sl" placeholder="0.00">
+          <input type="number" step="any" class="form-input" id="j-sl" placeholder="0.00" oninput="calculateRR()">
         </div>
         <div class="form-group">
           <label class="form-label">Take Profit</label>
-          <input type="number" step="any" class="form-input" id="j-tp" placeholder="0.00">
+          <input type="number" step="any" class="form-input" id="j-tp" placeholder="0.00" oninput="calculateRR()">
         </div>
         <div class="form-group">
           <label class="form-label">P&L ($)</label>
@@ -1511,6 +1531,53 @@ body::before {
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:0.78rem;color:var(--text-secondary);font-family:'DM Mono',monospace">CALCULATED P&L</span>
           <span id="calculated-pl-display" style="font-size:1.1rem;font-weight:700;font-family:'DM Mono',monospace;color:var(--text-muted)">$0.00</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">R:R (Risk:Reward)</label>
+          <input type="text" class="form-input" id="j-rr" placeholder="Auto-calculated from SL/TP" style="color:var(--accent);font-weight:600">
+        </div>
+        <div class="form-group">
+          <label class="form-label">POI (Point of Interest)</label>
+          <select class="form-select" id="j-poi">
+            <option value="">— Select —</option>
+            <option value="Order Block">Order Block</option>
+            <option value="Fair Value Gap">Fair Value Gap (FVG)</option>
+            <option value="Breaker Block">Breaker Block</option>
+            <option value="Mitigation Block">Mitigation Block</option>
+            <option value="Liquidity Sweep">Liquidity Sweep</option>
+            <option value="Supply/Demand Zone">Supply/Demand Zone</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Session</label>
+          <select class="form-select" id="j-session">
+            <option value="">— Select —</option>
+            <option value="Asian">Asian</option>
+            <option value="London">London</option>
+            <option value="New York">New York</option>
+            <option value="London/NY Overlap">London/NY Overlap</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Exit Reason</label>
+          <select class="form-select" id="j-exit-reason">
+            <option value="">— Select —</option>
+            <option value="Take Profit Hit">Take Profit Hit</option>
+            <option value="Stop Loss Hit">Stop Loss Hit</option>
+            <option value="Manual Close - Target Reached">Manual Close — Target Reached</option>
+            <option value="Manual Close - Fear/Uncertainty">Manual Close — Fear/Uncertainty</option>
+            <option value="Manual Close - New POI Formed (Lower TF)">Manual Close — New POI Formed (Lower TF)</option>
+            <option value="Manual Close - Structure Break/Invalidation">Manual Close — Structure Break/Invalidation</option>
+            <option value="Manual Close - News Event">Manual Close — News Event</option>
+            <option value="Trailing Stop">Trailing Stop</option>
+            <option value="Other">Other</option>
+          </select>
         </div>
       </div>
       <div class="form-group">
@@ -2275,7 +2342,34 @@ function getCurrentJournal() {
   if (!state.journal[state.currentAccount]) {
     state.journal[state.currentAccount] = [];
   }
+  ensureTradeIds(state.journal[state.currentAccount]);
   return state.journal[state.currentAccount];
+}
+
+// Backfill missing trade IDs (e.g. older Excel-imported trades never got one assigned)
+// and recompute R:R for any trade that has entry/SL/TP but a blank R:R (e.g. trades saved
+// before the R:R calculation was fixed). Never overwrites an R:R value you set manually.
+function ensureTradeIds(trades) {
+  let changed = false;
+  trades.forEach(t => {
+    if (!t.id) {
+      t.id = 'j_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      changed = true;
+    }
+    if (!t.rr && t.entry && t.sl && t.tp) {
+      const recomputed = computeRR(t.entry, t.sl, t.tp, t.direction);
+      if (recomputed) { t.rr = recomputed; changed = true; }
+    }
+    if (!t.exitReason && t.exit && (t.sl || t.tp)) {
+      const detected = detectExitReason(t.exit, t.sl, t.tp);
+      if (detected) { t.exitReason = detected; changed = true; }
+    }
+    if (!t.session && t.openTimeRaw) {
+      const detectedSession = sessionFromHour(extractHour(t.openTimeRaw));
+      if (detectedSession) { t.session = detectedSession; changed = true; }
+    }
+  });
+  if (changed) saveToStorage('te_journal', state.journal);
 }
 
 // Switch to a different account
@@ -2772,6 +2866,20 @@ function calculatePL() {
   const display = document.getElementById('calculated-pl-display');
   display.textContent = `$${pl.toFixed(2)}`;
   display.style.color = pl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  calculateRR();
+}
+
+// Auto-calculate R:R (Risk:Reward) from Entry, SL, and TP
+function calculateRR() {
+  const entry = document.getElementById('j-entry').value;
+  const sl = document.getElementById('j-sl').value;
+  const tp = document.getElementById('j-tp').value;
+  const direction = document.getElementById('j-direction').value;
+  const rrField = document.getElementById('j-rr');
+
+  const rr = computeRR(entry, sl, tp, direction);
+  if (rr) rrField.value = rr; // leave manual value untouched if SL/TP incomplete
 }
 
 function openJournalModal(editId) {
@@ -2794,6 +2902,10 @@ function openJournalModal(editId) {
       document.getElementById('j-sl').value = entry.sl || '';
       document.getElementById('j-tp').value = entry.tp || '';
       document.getElementById('j-pnl').value = entry.pnl;
+      document.getElementById('j-rr').value = entry.rr || '';
+      document.getElementById('j-poi').value = entry.poi || '';
+      document.getElementById('j-session').value = entry.session || '';
+      document.getElementById('j-exit-reason').value = entry.exitReason || '';
       document.getElementById('j-rules-followed').value = entry.rulesFollowed || 'all';
       document.getElementById('j-worked').value = entry.worked || '';
       document.getElementById('j-failed').value = entry.failed || '';
@@ -2818,6 +2930,10 @@ function openJournalModal(editId) {
     document.getElementById('j-sl').value = '';
     document.getElementById('j-tp').value = '';
     document.getElementById('j-pnl').value = '';
+    document.getElementById('j-rr').value = '';
+    document.getElementById('j-poi').value = '';
+    document.getElementById('j-session').value = '';
+    document.getElementById('j-exit-reason').value = '';
     document.getElementById('j-rules-followed').value = 'all';
     document.getElementById('j-worked').value = '';
     document.getElementById('j-failed').value = '';
@@ -2846,6 +2962,10 @@ function saveJournalEntry() {
   const sl = document.getElementById('j-sl').value;
   const tp = document.getElementById('j-tp').value;
   const pnl = parseFloat(document.getElementById('j-pnl').value) || 0;
+  const rr = document.getElementById('j-rr').value.trim();
+  const poi = document.getElementById('j-poi').value;
+  const session = document.getElementById('j-session').value;
+  const exitReason = document.getElementById('j-exit-reason').value;
   const rulesFollowed = document.getElementById('j-rules-followed').value;
   const worked = document.getElementById('j-worked').value.trim();
   const failed = document.getElementById('j-failed').value.trim();
@@ -2856,7 +2976,7 @@ function saveJournalEntry() {
   if (!date || !pair) { showToast('Please fill in at least the date and pair.', 'error'); return; }
 
   const entryData = { 
-    date, pair, direction, asset, entry, exit, lots, sl, tp, pnl, 
+    date, pair, direction, asset, entry, exit, lots, sl, tp, pnl, rr, poi, session, exitReason,
     rulesFollowed, worked, failed, notes, workedTags, failedTags 
   };
 
@@ -2883,6 +3003,39 @@ async function deleteJournalEntry(id) {
     journal.splice(idx, 1);
     saveJournal();
     renderJournal();
+  }
+}
+
+// Update POI directly from the journal table, without opening the edit modal
+function updatePoiInline(id, value) {
+  const journal = getCurrentJournal();
+  const entry = journal.find(e => e.id === id);
+  if (entry) {
+    entry.poi = value;
+    saveJournal();
+    showToast('POI updated', 'success', 1500);
+  }
+}
+
+// Update Session directly from the journal table, without opening the edit modal
+function updateSessionInline(id, value) {
+  const journal = getCurrentJournal();
+  const entry = journal.find(e => e.id === id);
+  if (entry) {
+    entry.session = value;
+    saveJournal();
+    showToast('Session updated', 'success', 1500);
+  }
+}
+
+// Update Exit Reason directly from the journal table, without opening the edit modal
+function updateExitReasonInline(id, value) {
+  const journal = getCurrentJournal();
+  const entry = journal.find(e => e.id === id);
+  if (entry) {
+    entry.exitReason = value;
+    saveJournal();
+    showToast('Exit reason updated', 'success', 1500);
   }
 }
 
@@ -2924,6 +3077,43 @@ function renderJournal() {
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem;text-align:center">${lots}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem">${e.entry || '—'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem">${e.exit || '—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:0.85rem;color:var(--accent)">${e.rr || '—'}</td>
+      <td>
+        <select class="form-select" style="font-size:0.75rem;padding:0.3rem 0.5rem;min-width:130px" onchange="updatePoiInline('${e.id}', this.value)">
+          <option value="" ${!e.poi ? 'selected' : ''}>— Select —</option>
+          <option value="Order Block" ${e.poi === 'Order Block' ? 'selected' : ''}>Order Block</option>
+          <option value="Fair Value Gap" ${e.poi === 'Fair Value Gap' ? 'selected' : ''}>Fair Value Gap (FVG)</option>
+          <option value="Breaker Block" ${e.poi === 'Breaker Block' ? 'selected' : ''}>Breaker Block</option>
+          <option value="Mitigation Block" ${e.poi === 'Mitigation Block' ? 'selected' : ''}>Mitigation Block</option>
+          <option value="Liquidity Sweep" ${e.poi === 'Liquidity Sweep' ? 'selected' : ''}>Liquidity Sweep</option>
+          <option value="Supply/Demand Zone" ${e.poi === 'Supply/Demand Zone' ? 'selected' : ''}>Supply/Demand Zone</option>
+          <option value="Other" ${e.poi === 'Other' ? 'selected' : ''}>Other</option>
+        </select>
+      </td>
+      <td>
+        <select class="form-select" style="font-size:0.75rem;padding:0.3rem 0.5rem;min-width:110px" onchange="updateSessionInline('${e.id}', this.value)">
+          <option value="" ${!e.session ? 'selected' : ''}>— Select —</option>
+          <option value="Asian" ${e.session === 'Asian' ? 'selected' : ''}>Asian</option>
+          <option value="London" ${e.session === 'London' ? 'selected' : ''}>London</option>
+          <option value="New York" ${e.session === 'New York' ? 'selected' : ''}>New York</option>
+          <option value="London/NY Overlap" ${e.session === 'London/NY Overlap' ? 'selected' : ''}>London/NY Overlap</option>
+          <option value="Other" ${e.session === 'Other' ? 'selected' : ''}>Other</option>
+        </select>
+      </td>
+      <td>
+        <select class="form-select" style="font-size:0.75rem;padding:0.3rem 0.5rem;min-width:150px" onchange="updateExitReasonInline('${e.id}', this.value)">
+          <option value="" ${!e.exitReason ? 'selected' : ''}>— Select —</option>
+          <option value="Take Profit Hit" ${e.exitReason === 'Take Profit Hit' ? 'selected' : ''}>Take Profit Hit</option>
+          <option value="Stop Loss Hit" ${e.exitReason === 'Stop Loss Hit' ? 'selected' : ''}>Stop Loss Hit</option>
+          <option value="Manual Close - Target Reached" ${e.exitReason === 'Manual Close - Target Reached' ? 'selected' : ''}>Manual Close — Target Reached</option>
+          <option value="Manual Close - Fear/Uncertainty" ${e.exitReason === 'Manual Close - Fear/Uncertainty' ? 'selected' : ''}>Manual Close — Fear/Uncertainty</option>
+          <option value="Manual Close - New POI Formed (Lower TF)" ${e.exitReason === 'Manual Close - New POI Formed (Lower TF)' ? 'selected' : ''}>Manual Close — New POI (Lower TF)</option>
+          <option value="Manual Close - Structure Break/Invalidation" ${e.exitReason === 'Manual Close - Structure Break/Invalidation' ? 'selected' : ''}>Manual Close — Structure Break</option>
+          <option value="Manual Close - News Event" ${e.exitReason === 'Manual Close - News Event' ? 'selected' : ''}>Manual Close — News Event</option>
+          <option value="Trailing Stop" ${e.exitReason === 'Trailing Stop' ? 'selected' : ''}>Trailing Stop</option>
+          <option value="Other" ${e.exitReason === 'Other' ? 'selected' : ''}>Other</option>
+        </select>
+      </td>
       <td class="${pnlClass}" style="font-weight:700">${pnlStr}</td>
       <td><span class="outcome-tag ${outcome}">${outcomeLabel}</span></td>
       <td class="notes-cell" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>
@@ -3039,6 +3229,9 @@ function renderReview() {
     document.getElementById('equity-curve-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No trades to plot yet.</div>';
     document.getElementById('rule-adherence-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
     document.getElementById('day-performance-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
+    document.getElementById('poi-performance-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
+    document.getElementById('session-performance-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
+    document.getElementById('exit-reason-performance-container').innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
     return;
   }
 
@@ -3155,6 +3348,9 @@ function renderReview() {
   renderEquityCurve(entries);
   renderRuleAdherence(entries);
   renderDayOfWeekPerformance(entries);
+  renderGroupPerformance(entries, 'poi-performance-container', e => e.poi, 'Not tagged');
+  renderGroupPerformance(entries, 'session-performance-container', e => e.session, 'Not tagged');
+  renderGroupPerformance(entries, 'exit-reason-performance-container', e => e.exitReason, 'Not tagged');
 }
 
 // === Equity curve (SVG line chart of cumulative P&L) ===
@@ -3237,6 +3433,48 @@ function renderRuleAdherence(entries) {
 }
 
 // === Performance by day of week ===
+// Generic grouped performance renderer, used for both POI and Session breakdowns
+function renderGroupPerformance(entries, containerId, keyFn, emptyValueLabel) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const groups = {};
+  entries.forEach(e => {
+    const key = keyFn(e) || emptyValueLabel;
+    if (!groups[key]) groups[key] = { count: 0, pnl: 0, wins: 0 };
+    groups[key].count++;
+    groups[key].pnl += e.pnl;
+    if (e.pnl > 0) groups[key].wins++;
+  });
+
+  const keys = Object.keys(groups);
+  if (keys.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;">No data yet.</div>';
+    return;
+  }
+
+  // Sort by trade count desc, so your most-used setups/sessions show first
+  keys.sort((a, b) => groups[b].count - groups[a].count);
+  const maxAbsPnl = Math.max(...keys.map(k => Math.abs(groups[k].pnl)), 1);
+
+  container.innerHTML = keys.map(key => {
+    const g = groups[key];
+    const winRate = g.count > 0 ? (g.wins / g.count * 100) : 0;
+    const barPct = Math.min(100, (Math.abs(g.pnl) / maxAbsPnl) * 100);
+    const barColor = g.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    return `
+      <div class="insight-row">
+        <div class="insight-row-label" style="font-size:0.78rem">${escapeHtml(key)}</div>
+        <div class="insight-bar-track">
+          <div class="insight-bar-fill" style="width:${barPct}%;background:${barColor};"></div>
+        </div>
+        <div class="insight-row-value" style="color:${barColor}">${g.pnl >= 0 ? '+' : ''}$${g.pnl.toFixed(2)}</div>
+      </div>
+      <div style="margin:-0.3rem 0 0.3rem 100px;font-family:'DM Mono',monospace;font-size:0.7rem;color:var(--text-muted);">${g.count} trade${g.count !== 1 ? 's' : ''} · ${winRate.toFixed(0)}% win rate</div>
+    `;
+  }).join('');
+}
+
 function renderDayOfWeekPerformance(entries) {
   const container = document.getElementById('day-performance-container');
   if (!container) return;
@@ -3420,6 +3658,57 @@ function handleExcelUpload(event) {
 }
 
 // Parse Excel Data from MT5
+// === R:R and Session auto-detection helpers (used by manual entry + all import paths) ===
+function computeRR(entry, sl, tp, direction) {
+  const e = parseFloat(entry), s = parseFloat(sl), t = parseFloat(tp);
+  if (!e || !s || !t) return '';
+  // Use absolute distances rather than direction-signed risk/reward. MT5 often reports
+  // the FINAL sl (e.g. after you trailed it into profit), which can sit on the "wrong"
+  // side of entry for the original planned risk. Distance-based R:R still gives a usable
+  // ratio in that case instead of going blank.
+  const risk = Math.abs(e - s);
+  const reward = Math.abs(t - e);
+  if (risk === 0 || reward === 0) return '';
+  return `1:${(reward / risk).toFixed(2)}`;
+}
+
+function extractHour(timeValue) {
+  if (timeValue === null || timeValue === undefined || timeValue === '') return null;
+  // Excel serial date/time number
+  if (typeof timeValue === 'number') {
+    const date = new Date(Math.round((timeValue - 25569) * 86400 * 1000));
+    return date.getUTCHours();
+  }
+  const str = timeValue.toString();
+  const m = str.match(/(\d{2}):(\d{2})(:\d{2})?\s*$/);
+  if (m) return parseInt(m[1], 10);
+  return null;
+}
+
+// Session buckets based on the trade's open time, as recorded by your broker (server time).
+// If your broker's server timezone offset is different, edit the Session dropdown manually per trade,
+// or tell Claude your broker's UTC offset and these ranges can be tuned.
+function sessionFromHour(hour) {
+  if (hour === null || hour === undefined || isNaN(hour)) return '';
+  if (hour >= 0 && hour < 7) return 'Asian';
+  if (hour >= 7 && hour < 12) return 'London';
+  if (hour >= 12 && hour < 16) return 'London/NY Overlap';
+  if (hour >= 16 && hour < 21) return 'New York';
+  return 'Asian';
+}
+
+// Auto-detect exit reason on import by comparing the actual exit price to recorded SL/TP
+// (small tolerance for slippage). Anything else is left blank for you to tag manually -
+// only you know if it was closed on fear, a new POI, structure break, etc.
+function detectExitReason(exit, sl, tp) {
+  const ex = parseFloat(exit), s = parseFloat(sl), t = parseFloat(tp);
+  if (!ex) return '';
+  const tolerance = 0.0015; // ~0.15% price tolerance for slippage
+  if (t && Math.abs(ex - t) / t <= tolerance) return 'Take Profit Hit';
+  if (s && Math.abs(ex - s) / s <= tolerance) return 'Stop Loss Hit';
+  return '';
+}
+
 function parseExcelData(jsonData) {
   const trades = [];
   
@@ -3487,6 +3776,7 @@ function parseExcelData(jsonData) {
       if (!symbol || !type || volume === 0 || entry === 0 || exit === 0) continue;
       
       const trade = {
+        id: 'j_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
         date: closeDate,
         pair: symbol,
         direction: type === 'buy' ? 'buy' : 'sell',
@@ -3497,6 +3787,11 @@ function parseExcelData(jsonData) {
         sl: sl ? sl.toString() : '',
         tp: tp ? tp.toString() : '',
         pnl: profit,
+        rr: computeRR(entry, sl, tp, type === 'buy' ? 'buy' : 'sell'),
+        poi: '',
+        session: sessionFromHour(extractHour(openTime)),
+        openTimeRaw: openTime ? openTime.toString() : '',
+        exitReason: detectExitReason(exit, sl, tp),
         rulesFollowed: 'all',
         worked: '',
         failed: '',
@@ -3792,6 +4087,11 @@ function parseMarkdownTable(text) {
         sl: cleanSL,
         tp: cleanTP,
         pnl: profit,
+        rr: computeRR(openPrice, cleanSL, cleanTP, type === 'buy' ? 'buy' : 'sell'),
+        poi: '',
+        session: sessionFromHour(extractHour(timeOpen)),
+        openTimeRaw: timeOpen || '',
+        exitReason: detectExitReason(closePrice, cleanSL, cleanTP),
         rulesFollowed: 'all',
         worked: '',
         failed: '',
@@ -3935,6 +4235,11 @@ function parseTradeParts(parts) {
       sl: sl,
       tp: tp,
       pnl: profit,
+      rr: computeRR(entry, sl, tp, direction),
+      poi: '',
+      session: sessionFromHour(extractHour(date)),
+      openTimeRaw: date || '',
+      exitReason: detectExitReason(exit, sl, tp),
       rulesFollowed: 'all',
       worked: '',
       failed: '',
