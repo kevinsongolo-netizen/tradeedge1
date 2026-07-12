@@ -4482,8 +4482,98 @@ if ('serviceWorker' in navigator) {
       </div>
       <div class="form-group"><label class="form-label">Planned R:R</label><input type="number" step="any" class="form-input" id="ai-pt-rr" placeholder="2.0"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">H4 Trend</label>
+        <select class="form-select" id="ai-pt-h4trend"><option value="">— Select —</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option><option value="Ranging">Ranging</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Confidence %</label><input type="number" min="0" max="100" step="any" class="form-input" id="ai-pt-confidence" placeholder="80"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;margin-top:1.6rem;">
+        <input type="checkbox" id="ai-pt-bos" style="width:auto;">
+        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Break of structure (BOS) confirmed</label>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;margin-top:1.6rem;">
+        <input type="checkbox" id="ai-pt-sweep" style="width:auto;">
+        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Liquidity sweep occurred</label>
+      </div>
+    </div>
     <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Chart Analysis Engine</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Reads a chart (screenshot or price data), validates it against your SMC rules, and explains the reasoning behind every call.</p>
+
+    <div class="form-row" style="margin-bottom:0.75rem;">
+      <div class="form-group" style="display:flex;align-items:center;gap:1.5rem;">
+        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
+          <input type="radio" name="ai-ca-mode" value="image" id="ai-ca-mode-image" checked style="width:auto;"> Chart screenshot
+        </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
+          <input type="radio" name="ai-ca-mode" value="candles" id="ai-ca-mode-candles" style="width:auto;"> Paste candle data
+        </label>
+      </div>
+    </div>
+
+    <div id="ai-ca-image-input">
+      <div class="form-group">
+        <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
+        <input type="file" class="form-input" id="ai-ca-file" accept="image/png,image/jpeg,image/webp">
+      </div>
+    </div>
+
+    <div id="ai-ca-candles-input" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">Candle data — one bar per line: time,open,high,low,close</label>
+        <textarea class="form-input" id="ai-ca-candles" rows="6" placeholder="2024-01-01T00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T01:00,1.0960,1.0975,1.0955,1.0970"></textarea>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Direction</label>
+        <select class="form-select" id="ai-ca-direction"><option value="">Auto (use chart bias)</option><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Planned R:R</label><input type="number" step="any" class="form-input" id="ai-ca-rr" placeholder="2.0"></div>
+      <div class="form-group"><label class="form-label">Min R:R required</label><input type="number" step="any" class="form-input" id="ai-ca-minrr" placeholder="2.0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-ca-m15bos" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 BOS confirmed</label>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-ca-m15choch" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 CHOCH confirmed</label>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-ca-m15entry" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 entry confirmation</label>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-ca-sweep" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Liquidity sweep occurred</label>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="aiRunChartAnalysis()">Analyze chart</button>
+    <div id="ai-ca-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+
+    <div id="ai-ca-results" style="margin-top:1.25rem;display:none;">
+      <div class="card" style="margin-bottom:1rem;">
+        <h4 style="margin-bottom:0.75rem;">Chart Analysis</h4>
+        <div id="ai-ca-analysis-output"></div>
+      </div>
+      <div class="card" style="margin-bottom:1rem;">
+        <h4 style="margin-bottom:0.75rem;">Trade Validation</h4>
+        <div id="ai-ca-validation-output"></div>
+      </div>
+      <div class="card" style="margin-bottom:1rem;">
+        <h4 style="margin-bottom:0.75rem;">AI Coach</h4>
+        <div id="ai-ca-coach-output"></div>
+      </div>
+      <div class="card">
+        <h4 style="margin-bottom:0.75rem;">Confidence Meter</h4>
+        <div id="ai-ca-confidence-output"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -4596,10 +4686,22 @@ if ('serviceWorker' in navigator) {
     const pair = document.getElementById('ai-pt-pair').value.trim();
     const direction = document.getElementById('ai-pt-direction').value;
     const rr = parseFloat(document.getElementById('ai-pt-rr').value);
+    const h4Trend = document.getElementById('ai-pt-h4trend').value;
+    const confidence = parseFloat(document.getElementById('ai-pt-confidence').value);
+    const hasBos = document.getElementById('ai-pt-bos').checked;
+    const hasLiquiditySweep = document.getElementById('ai-pt-sweep').checked;
     if (!pair) { el.textContent = 'Enter a pair first.'; return; }
     el.textContent = 'Checking...';
     try {
-      const body = { pair: pair, direction: direction, plannedRR: isNaN(rr) ? null : rr };
+      const body = {
+        pair: pair,
+        direction: direction,
+        plannedRR: isNaN(rr) ? null : rr,
+        h4Trend: h4Trend || null,
+        confidence: isNaN(confidence) ? null : confidence,
+        hasBos: hasBos,
+        hasLiquiditySweep: hasLiquiditySweep,
+      };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
       el.innerHTML =
         '<div class="review-item"><strong>Recommendation: ' + escapeHtml(data.recommendation) + '</strong><br>' +
@@ -4611,6 +4713,154 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  async function apiFetchMultipart(path, opts = {}) {
+    const base = getApiBase();
+    if (!base) throw new Error('Set your backend URL above first.');
+    const res = await fetch(base + path, opts);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(res.status + ': ' + text.slice(0, 200));
+    }
+    return res.json();
+  }
+
+  function confidenceColor(score) {
+    if (score >= 70) return 'var(--green)';
+    if (score >= 40) return '#e0a800';
+    return 'var(--red)';
+  }
+
+  function confidenceBar(label, score) {
+    const s = Math.max(0, Math.min(100, score));
+    return '<div style="margin-bottom:0.5rem;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:0.2rem;"><span>' + escapeHtml(label) + '</span><span>' + score + '%</span></div>' +
+      '<div style="background:rgba(128,128,128,0.2);border-radius:4px;height:8px;overflow:hidden;">' +
+      '<div style="width:' + s + '%;height:100%;background:' + confidenceColor(score) + ';"></div>' +
+      '</div></div>';
+  }
+
+  function renderChartAnalysis(a) {
+    const el = document.getElementById('ai-ca-analysis-output');
+    const placeholderBanner = a.isPlaceholder
+      ? '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Example data — screenshot reading isn\'t connected to a live vision AI yet. Use candle data for a real read, or add a vision API key on the backend.</div>'
+      : '';
+    const zonesHtml = (a.zones || []).map(function (z) {
+      return '<div style="font-size:0.85rem;">' + escapeHtml(z.kind) + ' ' + escapeHtml(z.zoneType) + ': ' + z.low + ' – ' + z.high + (z.mitigated ? ' (mitigated)' : '') + '</div>';
+    }).join('');
+    el.innerHTML =
+      placeholderBanner +
+      '<div class="review-item"><strong>Trend:</strong> ' + escapeHtml(a.trend) + ' &nbsp; <strong>Bias:</strong> ' + escapeHtml(a.bias) + ' &nbsp; <strong>Read confidence:</strong> ' + a.confidence + '%</div>' +
+      '<div class="review-item"><strong>Structure:</strong> ' + escapeHtml(a.structure) + '</div>' +
+      '<div class="review-item"><strong>Price context:</strong> ' + escapeHtml(a.currentPriceContext) + ' (' + escapeHtml(a.premiumDiscount) + ')</div>' +
+      '<div class="review-item"><strong>Liquidity:</strong> ' + escapeHtml(a.liquidity) + '</div>' +
+      (a.latestEvent ? '<div class="review-item"><strong>Latest event:</strong> ' + escapeHtml(a.latestEvent) + '</div>' : '') +
+      (a.fvgStatus ? '<div class="review-item"><strong>FVG:</strong> ' + escapeHtml(a.fvgStatus) + '</div>' : '') +
+      (zonesHtml ? '<div class="review-item"><strong>Zones:</strong><br>' + zonesHtml + '</div>' : '') +
+      ((a.notes && a.notes.length) ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + a.notes.map(escapeHtml).join('<br>') + '</div>' : '');
+  }
+
+  function renderTradeValidation(v) {
+    const el = document.getElementById('ai-ca-validation-output');
+    const statusColor = v.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
+    el.innerHTML =
+      '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(v.tradeStatus) + '</strong> — ' + escapeHtml(v.recommendation) + (v.direction ? ' (' + escapeHtml(v.direction) + ')' : '') + '</div>' +
+      (v.reasonsPassed.length ? '<div class="review-item" style="color:var(--green)">✓ ' + v.reasonsPassed.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
+      (v.reasonsFailed.length ? '<div class="review-item" style="color:var(--red)">✗ ' + v.reasonsFailed.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
+      ((v.suggestedEntry != null || v.stopLoss != null || v.takeProfit != null)
+        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '</div>'
+        : '');
+  }
+
+  function renderAiCoach(c) {
+    const el = document.getElementById('ai-ca-coach-output');
+    el.innerHTML =
+      '<div class="review-item"><strong>' + escapeHtml(c.headline) + '</strong> — recommendation: ' + escapeHtml(c.recommendation) + '</div>' +
+      ((c.explanation && c.explanation.length) ? c.explanation.map(function (line) { return '<div class="review-item">' + escapeHtml(line) + '</div>'; }).join('') : '');
+  }
+
+  function renderConfidenceMeter(breakdown) {
+    const el = document.getElementById('ai-ca-confidence-output');
+    el.innerHTML =
+      confidenceBar('Overall confidence', breakdown.overall) +
+      '<div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.4rem;">Breakdown</div>' +
+      confidenceBar('H4 trend alignment', breakdown.trendAlignment) +
+      confidenceBar('POI quality', breakdown.poiQuality) +
+      confidenceBar('Liquidity quality', breakdown.liquidityQuality) +
+      confidenceBar('BOS quality', breakdown.bosQuality) +
+      confidenceBar('CHOCH quality', breakdown.chochQuality) +
+      confidenceBar('FVG quality', breakdown.fvgQuality) +
+      confidenceBar('R:R quality', breakdown.rrQuality);
+  }
+
+  function parseCandlesTextarea(raw) {
+    return raw.trim().split('\n').map(function (line) { return line.trim(); }).filter(Boolean).map(function (line) {
+      const parts = line.split(',').map(function (s) { return s.trim(); });
+      if (parts.length < 5) throw new Error('Each line needs time,open,high,low,close — got: "' + line + '"');
+      const candle = { time: parts[0], open: parseFloat(parts[1]), high: parseFloat(parts[2]), low: parseFloat(parts[3]), close: parseFloat(parts[4]) };
+      if ([candle.open, candle.high, candle.low, candle.close].some(isNaN)) {
+        throw new Error('Could not read numbers on line: "' + line + '"');
+      }
+      return candle;
+    });
+  }
+
+  async function runChartAnalysis() {
+    const errorEl = document.getElementById('ai-ca-error');
+    const resultsEl = document.getElementById('ai-ca-results');
+    errorEl.textContent = '';
+    resultsEl.style.display = 'none';
+
+    const mode = document.getElementById('ai-ca-mode-image').checked ? 'image' : 'candles';
+    const direction = document.getElementById('ai-ca-direction').value || null;
+    const rr = parseFloat(document.getElementById('ai-ca-rr').value);
+    const minRr = parseFloat(document.getElementById('ai-ca-minrr').value);
+    const hasM15Bos = document.getElementById('ai-ca-m15bos').checked;
+    const hasM15Choch = document.getElementById('ai-ca-m15choch').checked;
+    const hasM15Entry = document.getElementById('ai-ca-m15entry').checked;
+    const hasSweep = document.getElementById('ai-ca-sweep').checked;
+
+    try {
+      let data;
+      if (mode === 'image') {
+        const fileInput = document.getElementById('ai-ca-file');
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) { errorEl.textContent = 'Choose a chart screenshot first.'; return; }
+        const form = new FormData();
+        form.append('file', file);
+        if (direction) form.append('direction', direction);
+        if (!isNaN(rr)) form.append('planned_rr', String(rr));
+        if (!isNaN(minRr)) form.append('min_rr', String(minRr));
+        form.append('has_m15_bos', String(hasM15Bos));
+        form.append('has_m15_choch', String(hasM15Choch));
+        form.append('has_m15_entry_confirmation', String(hasM15Entry));
+        form.append('has_liquidity_sweep', String(hasSweep));
+        data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
+      } else {
+        const raw = document.getElementById('ai-ca-candles').value;
+        if (!raw.trim()) { errorEl.textContent = 'Paste at least one candle first.'; return; }
+        const candles = parseCandlesTextarea(raw);
+        const body = {
+          candles: candles,
+          direction: direction,
+          plannedRr: isNaN(rr) ? null : rr,
+          minRr: isNaN(minRr) ? 2.0 : minRr,
+          hasM15Bos: hasM15Bos,
+          hasM15Choch: hasM15Choch,
+          hasM15EntryConfirmation: hasM15Entry,
+          hasLiquiditySweep: hasSweep,
+        };
+        data = await apiFetch('/api/v1/chart/full-analysis/candles', { method: 'POST', body: JSON.stringify(body) });
+      }
+      renderChartAnalysis(data.analysis);
+      renderTradeValidation(data.validation);
+      renderAiCoach(data.coach);
+      renderConfidenceMeter(data.coach.confidence);
+      resultsEl.style.display = 'block';
+    } catch (e) {
+      errorEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
   window.aiSaveApiBase = function () {
     const input = document.getElementById('ai-api-base-input');
     setApiBase(input.value.trim());
@@ -4619,10 +4869,26 @@ if ('serviceWorker' in navigator) {
   window.aiSyncTrades = syncTradesToBackend;
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiRunPretrade = runPretradeCheck;
+  window.aiRunChartAnalysis = runChartAnalysis;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
     if (input) input.value = getApiBase();
+
+    const modeImage = document.getElementById('ai-ca-mode-image');
+    const modeCandles = document.getElementById('ai-ca-mode-candles');
+    const imageInput = document.getElementById('ai-ca-image-input');
+    const candlesInput = document.getElementById('ai-ca-candles-input');
+    function syncCaMode() {
+      const isImage = modeImage.checked;
+      imageInput.style.display = isImage ? '' : 'none';
+      candlesInput.style.display = isImage ? 'none' : '';
+    }
+    if (modeImage && modeCandles) {
+      modeImage.addEventListener('change', syncCaMode);
+      modeCandles.addEventListener('change', syncCaMode);
+      syncCaMode();
+    }
   });
 })();
 </script></body>
