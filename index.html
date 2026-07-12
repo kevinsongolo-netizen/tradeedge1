@@ -1274,7 +1274,7 @@ body::before {
       <button class="nav-tab" data-tab="checklist">Checklist</button>
       <button class="nav-tab" data-tab="journal">Journal</button>
       <button class="nav-tab" data-tab="notes">Notes</button>
-      <button class="nav-tab" data-tab="review">Review</button>
+      <button class="nav-tab" data-tab="review">Review</button><button class="nav-tab" data-tab="ai-insights">AI Insights</button>
     </nav>
     <div class="header-actions" style="display:flex;align-items:center;gap:0.75rem;">
       <button class="btn btn-sm btn-primary" onclick="installPWA()" id="pwa-install-btn" style="display:none;">⬇ Install App</button>
@@ -4447,5 +4447,183 @@ if ('serviceWorker' in navigator) {
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"75124c326cb447fe934cde04713ae013","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"75124c326cb447fe934cde04713ae013","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon='{"version":"2024.11.0","token":"75124c326cb447fe934cde04713ae013","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
-</body>
+<div class="tab-content" id="tab-ai-insights">
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">AI Insights</h2>
+      <p class="section-desc">Powered by your TradeEdge AI backend — scoring, coaching, and pre-trade analysis.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
+    <div class="form-group">
+      <label class="form-label">Backend URL</label>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" class="form-input" id="ai-api-base-input" placeholder="https://your-app.onrender.com">
+        <button class="btn btn-primary" onclick="aiSaveApiBase()">Save</button>
+      </div>
+    </div>
+    <button class="btn" onclick="aiSyncTrades()">Sync my trades to AI backend</button>
+    <span id="ai-sync-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:1rem;">Coach Deep Dive</h3>
+    <button class="btn" onclick="aiLoadCoach()">Load insights</button>
+    <div id="ai-coach-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:1rem;">Pre-Trade Check</h3>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD"></div>
+      <div class="form-group"><label class="form-label">Direction</label>
+        <select class="form-select" id="ai-pt-direction"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Planned R:R</label><input type="number" step="any" class="form-input" id="ai-pt-rr" placeholder="2.0"></div>
+    </div>
+    <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
+    <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'te_ai_backend_url';
+
+  function getApiBase() {
+    return localStorage.getItem(STORAGE_KEY) || '';
+  }
+  function setApiBase(url) {
+    localStorage.setItem(STORAGE_KEY, url.replace(/\/$/, ''));
+  }
+
+  function numOrNull(v) {
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  }
+
+  function toBackendTrade(t) {
+    return {
+      id: t.id,
+      date: t.date || null,
+      pair: t.pair || null,
+      direction: t.direction || null,
+      asset: t.asset || null,
+      entry: numOrNull(t.entry),
+      exit: numOrNull(t.exit),
+      sl: numOrNull(t.sl),
+      tp: numOrNull(t.tp),
+      lots: numOrNull(t.lots),
+      pnl: numOrNull(t.pnl),
+      rr: numOrNull(t.rr),
+      h4PoiType: t.poi || null,
+      session: t.session || null,
+      exitReason: t.exitReason || null,
+      rulesFollowed: t.rulesFollowed || null,
+      notes: t.notes || null,
+      worked: t.worked || null,
+      failed: t.failed || null,
+      workedTags: t.workedTags || [],
+      failedTags: t.failedTags || [],
+    };
+  }
+
+  async function apiFetch(path, opts = {}) {
+    const base = getApiBase();
+    if (!base) throw new Error('Set your backend URL above first.');
+    const res = await fetch(base + path, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(res.status + ': ' + text.slice(0, 200));
+    }
+    return res.json();
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s ?? '';
+    return d.innerHTML;
+  }
+
+  async function syncTradesToBackend() {
+    const statusEl = document.getElementById('ai-sync-status');
+    let trades;
+    try {
+      trades = getCurrentJournal();
+    } catch (e) {
+      statusEl.textContent = 'Could not read your journal (unexpected app state).';
+      return;
+    }
+    statusEl.textContent = 'Syncing ' + trades.length + ' trades...';
+    let ok = 0, fail = 0;
+    for (const t of trades) {
+      try {
+        await apiFetch('/api/v1/trades', { method: 'POST', body: JSON.stringify(toBackendTrade(t)) });
+        ok++;
+      } catch (e) {
+        fail++;
+        console.error('AI sync failed for trade', t.id, e);
+      }
+    }
+    statusEl.textContent = 'Synced ' + ok + ' trades' + (fail ? (', ' + fail + ' failed (see browser console)') : '') + '.';
+  }
+
+  async function loadCoachDeepDive() {
+    const el = document.getElementById('ai-coach-output');
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/deep-dive');
+      el.innerHTML =
+        '<div class="review-item"><strong>Why you\'re losing:</strong> ' + escapeHtml(data.whyLosing) + '</div>' +
+        '<div class="review-item"><strong>Why you\'re winning:</strong> ' + escapeHtml(data.whyWinning) + '</div>' +
+        (data.bestSetup ? '<div class="review-item"><strong>Best setup:</strong> ' + escapeHtml(data.bestSetup.key) + ' — ' + Math.round(data.bestSetup.winRate) + '% win rate over ' + data.bestSetup.count + ' trades</div>' : '') +
+        (data.worstSetup ? '<div class="review-item"><strong>Worst setup:</strong> ' + escapeHtml(data.worstSetup.key) + ' — ' + Math.round(data.worstSetup.winRate) + '% win rate over ' + data.worstSetup.count + ' trades</div>' : '') +
+        (data.worstDayToTrade ? '<div class="review-item"><strong>Worst day to trade:</strong> ' + escapeHtml(data.worstDayToTrade.key) + '</div>' : '') +
+        (data.bestSession ? '<div class="review-item"><strong>Best session:</strong> ' + escapeHtml(data.bestSession.key) + '</div>' : '') +
+        (data.pairToStopTrading ? '<div class="review-item"><strong>Consider dropping:</strong> ' + escapeHtml(data.pairToStopTrading.key) + '</div>' : '') +
+        '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Based on ' + data.sampleSize + ' synced trades.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function runPretradeCheck() {
+    const el = document.getElementById('ai-pretrade-output');
+    const pair = document.getElementById('ai-pt-pair').value.trim();
+    const direction = document.getElementById('ai-pt-direction').value;
+    const rr = parseFloat(document.getElementById('ai-pt-rr').value);
+    if (!pair) { el.textContent = 'Enter a pair first.'; return; }
+    el.textContent = 'Checking...';
+    try {
+      const body = { pair: pair, direction: direction, plannedRR: isNaN(rr) ? null : rr };
+      const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
+      el.innerHTML =
+        '<div class="review-item"><strong>Recommendation: ' + escapeHtml(data.recommendation) + '</strong><br>' +
+        'Quality score: ' + (data.tradeQualityScore ?? '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · Confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
+        (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
+        (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '');
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  window.aiSaveApiBase = function () {
+    const input = document.getElementById('ai-api-base-input');
+    setApiBase(input.value.trim());
+    if (typeof showToast === 'function') showToast('Backend URL saved.', 'success');
+  };
+  window.aiSyncTrades = syncTradesToBackend;
+  window.aiLoadCoach = loadCoachDeepDive;
+  window.aiRunPretrade = runPretradeCheck;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const input = document.getElementById('ai-api-base-input');
+    if (input) input.value = getApiBase();
+  });
+})();
+</script></body>
 </html>
