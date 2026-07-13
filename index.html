@@ -4537,8 +4537,12 @@ if ('serviceWorker' in navigator) {
 
     <div id="ai-ca-candles-input" style="display:none;">
       <div class="form-group">
-        <label class="form-label">Candle data — one bar per line: time,open,high,low,close</label>
+        <label class="form-label">Candle data (e.g. H4) — one bar per line: time,open,high,low,close</label>
         <textarea class="form-input" id="ai-ca-candles" rows="6" placeholder="2024-01-01T00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T01:00,1.0960,1.0975,1.0955,1.0970"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">M15 candle data (optional — enables automatic multi-timeframe confirmation)</label>
+        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Optional: paste M15 candles in the same format to auto-check BOS/CHOCH/entry confirmation instead of the checkboxes below."></textarea>
       </div>
     </div>
 
@@ -4576,6 +4580,10 @@ if ('serviceWorker' in navigator) {
         <h4 style="margin-bottom:0.75rem;">Trade Validation</h4>
         <div id="ai-ca-validation-output"></div>
       </div>
+      <div class="card" style="margin-bottom:1rem;" id="ai-ca-mtf-card">
+        <h4 style="margin-bottom:0.75rem;">Multi-Timeframe Confirmation</h4>
+        <div id="ai-ca-mtf-output"></div>
+      </div>
       <div class="card" style="margin-bottom:1rem;">
         <h4 style="margin-bottom:0.75rem;">AI Coach</h4>
         <div id="ai-ca-coach-output"></div>
@@ -4609,6 +4617,29 @@ if ('serviceWorker' in navigator) {
     <button class="btn btn-primary" onclick="aiRunPositionSize()">Calculate position size</button>
     <div id="ai-ps-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
     <div id="ai-ps-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Session &amp; News Check</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Trading session auto-detection and a high-impact news filter for your planned trade time.</p>
+    <button class="btn" onclick="aiRunSessionDetect()">Detect current session</button>
+    <div id="ai-session-output" style="margin-top:0.75rem;"></div>
+
+    <div style="border-top:1px solid var(--border);margin:1.25rem 0;padding-top:1rem;">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Planned Trade Time (your local time)</label><input type="datetime-local" class="form-input" id="ai-news-time"></div>
+        <div class="form-group"><label class="form-label">Buffer (minutes)</label><input type="number" step="any" class="form-input" id="ai-news-buffer" placeholder="60" value="60"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Currencies (optional, comma-separated)</label><input type="text" class="form-input" id="ai-news-currencies" placeholder="USD, EUR"></div>
+        <div class="form-group"><label class="form-label">Minimum impact</label>
+          <select class="form-select" id="ai-news-min-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="aiRunNewsCheck()">Check for news</button>
+      <div id="ai-news-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+      <div id="ai-news-output" style="margin-top:0.75rem;"></div>
+    </div>
   </div>
 </div>
 
@@ -4875,6 +4906,7 @@ if ('serviceWorker' in navigator) {
         const raw = document.getElementById('ai-ca-candles').value;
         if (!raw.trim()) { errorEl.textContent = 'Paste at least one candle first.'; return; }
         const candles = parseCandlesTextarea(raw);
+        const m15Raw = document.getElementById('ai-ca-m15-candles').value;
         const body = {
           candles: candles,
           direction: direction,
@@ -4885,6 +4917,9 @@ if ('serviceWorker' in navigator) {
           hasM15EntryConfirmation: hasM15Entry,
           hasLiquiditySweep: hasSweep,
         };
+        if (m15Raw && m15Raw.trim()) {
+          body.m15Candles = parseCandlesTextarea(m15Raw);
+        }
         data = await apiFetch('/api/v1/chart/full-analysis/candles', { method: 'POST', body: JSON.stringify(body) });
       }
       lastChartAnalysisResult = data;
@@ -4892,6 +4927,7 @@ if ('serviceWorker' in navigator) {
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
       renderConfidenceMeter(data.coach.confidence);
+      renderMultiTimeframe(data.multiTimeframe);
       resultsEl.style.display = 'block';
     } catch (e) {
       errorEl.textContent = 'Error: ' + e.message;
@@ -5030,6 +5066,70 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  function renderMultiTimeframe(mtf) {
+    const card = document.getElementById('ai-ca-mtf-card');
+    const el = document.getElementById('ai-ca-mtf-output');
+    if (!mtf) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+    const statusColor = mtf.aligned ? 'var(--green)' : 'var(--red)';
+    el.innerHTML =
+      '<div class="review-item"><strong style="color:' + statusColor + ';">' + (mtf.aligned ? 'CONFIRMED' : 'NOT CONFIRMED') + '</strong></div>' +
+      '<div class="review-item">M15 BOS: ' + (mtf.hasM15Bos ? '✓' : '✗') + ' &nbsp; M15 CHOCH: ' + (mtf.hasM15Choch ? '✓' : '✗') + ' &nbsp; Trend agreement: ' + (mtf.hasM15EntryConfirmation ? '✓' : '✗') + '</div>' +
+      ((mtf.notes && mtf.notes.length) ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + mtf.notes.map(escapeHtml).join('<br>') + '</div>' : '');
+  }
+
+  async function runSessionDetect() {
+    const el = document.getElementById('ai-session-output');
+    el.textContent = 'Detecting...';
+    try {
+      const data = await apiFetch('/api/v1/tools/session-detect', { method: 'POST', body: JSON.stringify({}) });
+      el.innerHTML =
+        '<div class="review-item"><strong>' + escapeHtml(data.primarySession) + '</strong>' + (data.isOverlap ? ' (overlap)' : '') + '</div>' +
+        '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">Active: ' + (data.activeSessions.length ? data.activeSessions.map(escapeHtml).join(', ') : 'Between sessions') + ' · ' + escapeHtml(data.utcTime) + '</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function runNewsCheck() {
+    const errorEl = document.getElementById('ai-news-error');
+    const el = document.getElementById('ai-news-output');
+    errorEl.textContent = '';
+    el.innerHTML = '';
+    const timeVal = document.getElementById('ai-news-time').value;
+    if (!timeVal) { errorEl.textContent = 'Choose a planned trade time first.'; return; }
+    const buffer = parseInt(document.getElementById('ai-news-buffer').value, 10);
+    const currenciesRaw = document.getElementById('ai-news-currencies').value.trim();
+    const currencies = currenciesRaw ? currenciesRaw.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean) : null;
+    const minImpact = document.getElementById('ai-news-min-impact').value;
+
+    const body = {
+      plannedTime: new Date(timeVal).toISOString(),
+      bufferMinutes: isNaN(buffer) ? 60 : buffer,
+      currencies: currencies,
+      minImpact: minImpact,
+    };
+    el.textContent = 'Checking...';
+    try {
+      const data = await apiFetch('/api/v1/news/check-calendar', { method: 'POST', body: JSON.stringify(body) });
+      const statusColor = data.hasHighImpactNearby ? 'var(--red)' : 'var(--green)';
+      const statusText = data.hasHighImpactNearby ? 'News nearby — consider waiting' : 'Clear to trade (no matching news nearby)';
+      el.innerHTML =
+        '<div class="review-item"><strong style="color:' + statusColor + ';">' + statusText + '</strong></div>' +
+        (data.matchingEvents.length
+          ? data.matchingEvents.map(function (ev) {
+              return '<div class="review-item">' + escapeHtml(ev.event) + ' (' + escapeHtml(ev.currency) + ', ' + escapeHtml(ev.impact) + ') — ' + ev.minutesAway + ' min away</div>';
+            }).join('')
+          : '') +
+        (data.warnings.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
+    } catch (e) {
+      errorEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
   window.aiSaveApiBase = function () {
     const input = document.getElementById('ai-api-base-input');
     setApiBase(input.value.trim());
@@ -5043,6 +5143,8 @@ if ('serviceWorker' in navigator) {
   window.aiUseValidationLevelsInCalculator = useValidationLevelsInCalculator;
   window.aiRunPositionSize = runPositionSize;
   window.aiRunTradeReview = runTradeReview;
+  window.aiRunSessionDetect = runSessionDetect;
+  window.aiRunNewsCheck = runNewsCheck;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
