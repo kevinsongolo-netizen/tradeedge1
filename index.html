@@ -4520,6 +4520,9 @@ if ('serviceWorker' in navigator) {
         <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
           <input type="radio" name="ai-ca-mode" value="candles" id="ai-ca-mode-candles" style="width:auto;"> Paste candle data
         </label>
+        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
+          <input type="radio" name="ai-ca-mode" value="live" id="ai-ca-mode-live" style="width:auto;"> Live feed (from MT5)
+        </label>
       </div>
     </div>
 
@@ -4544,6 +4547,17 @@ if ('serviceWorker' in navigator) {
         <label class="form-label">M15 candle data (optional — enables automatic multi-timeframe confirmation)</label>
         <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Optional: paste M15 candles in the same format to auto-check BOS/CHOCH/entry confirmation instead of the checkboxes below."></textarea>
       </div>
+    </div>
+
+    <div id="ai-ca-live-input" style="display:none;">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-live-symbol" placeholder="e.g. EURUSD, GER40Cash"></div>
+        <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-live-timeframe" placeholder="e.g. H4"></div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-live-autorefresh" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Auto-refresh every 30 seconds</label>
+      </div>
+      <div id="ai-live-status" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Requires the MT5 EA to be running and pushing data — see the setup guide.</div>
     </div>
 
     <div class="form-row">
@@ -4641,12 +4655,32 @@ if ('serviceWorker' in navigator) {
       <div id="ai-news-output" style="margin-top:0.75rem;"></div>
     </div>
   </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Backtest</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your SMC rules against historical candle data to see how they would have performed. Paste a longer series (50+ candles) for a meaningful sample — no AI, just your existing rules run automatically over the past.</p>
+    <div class="form-group">
+      <label class="form-label">Candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-bt-candles" rows="8" placeholder="Paste 50+ candles here, oldest first."></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Lookback window</label><input type="number" step="1" class="form-input" id="ai-bt-lookback" placeholder="100" value="100"></div>
+      <div class="form-group"><label class="form-label">Min R:R required</label><input type="number" step="any" class="form-input" id="ai-bt-minrr" placeholder="2.0" value="2.0"></div>
+      <div class="form-group"><label class="form-label">Direction</label>
+        <select class="form-select" id="ai-bt-direction"><option value="">Auto (use chart bias)</option><option value="buy">Buy only</option><option value="sell">Sell only</option></select>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="aiRunBacktest()">Run backtest</button>
+    <div id="ai-bt-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+    <div id="ai-bt-output" style="margin-top:1rem;"></div>
+  </div>
 </div>
 
 <script>
 (function () {
   const STORAGE_KEY = 'te_ai_backend_url';
   let lastChartAnalysisResult = null;
+  let liveAutoRefreshTimer = null;
 
   function getApiBase() {
     return localStorage.getItem(STORAGE_KEY) || '';
@@ -4877,7 +4911,15 @@ if ('serviceWorker' in navigator) {
     errorEl.textContent = '';
     resultsEl.style.display = 'none';
 
-    const mode = document.getElementById('ai-ca-mode-image').checked ? 'image' : 'candles';
+    const mode = document.getElementById('ai-ca-mode-live').checked
+      ? 'live'
+      : (document.getElementById('ai-ca-mode-image').checked ? 'image' : 'candles');
+
+    if (mode === 'live') {
+      await loadLiveLatest();
+      return;
+    }
+
     const direction = document.getElementById('ai-ca-direction').value || null;
     const rr = parseFloat(document.getElementById('ai-ca-rr').value);
     const minRr = parseFloat(document.getElementById('ai-ca-minrr').value);
@@ -5130,6 +5172,110 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  async function runBacktest() {
+    const errorEl = document.getElementById('ai-bt-error');
+    const outputEl = document.getElementById('ai-bt-output');
+    errorEl.textContent = '';
+    outputEl.innerHTML = '';
+
+    const raw = document.getElementById('ai-bt-candles').value;
+    if (!raw.trim()) { errorEl.textContent = 'Paste candle data first (50+ candles for a meaningful sample).'; return; }
+
+    let candles;
+    try {
+      candles = parseCandlesTextarea(raw);
+    } catch (e) {
+      errorEl.textContent = e.message;
+      return;
+    }
+
+    const lookback = parseInt(document.getElementById('ai-bt-lookback').value, 10);
+    const minRr = parseFloat(document.getElementById('ai-bt-minrr').value);
+    const direction = document.getElementById('ai-bt-direction').value || null;
+
+    const body = {
+      candles: candles,
+      lookbackWindow: isNaN(lookback) ? 100 : lookback,
+      minRr: isNaN(minRr) ? 2.0 : minRr,
+      direction: direction,
+    };
+
+    outputEl.textContent = 'Running backtest...';
+    try {
+      const data = await apiFetch('/api/v1/backtest/run', { method: 'POST', body: JSON.stringify(body) });
+      const rows = data.trades.map(function (t) {
+        const color = t.outcome === 'WIN' ? 'var(--green)' : (t.outcome === 'LOSS' ? 'var(--red)' : 'var(--text-muted)');
+        return '<div style="font-size:0.78rem;padding:0.25rem 0;border-bottom:1px solid var(--border);">' +
+          escapeHtml(t.entryTime) + ' · ' + escapeHtml(t.direction) + ' @ ' + t.entry +
+          ' <span style="color:' + color + ';font-weight:600;">' + escapeHtml(t.outcome) + '</span>' +
+          (t.rMultiple != null ? ' (' + t.rMultiple.toFixed(2) + 'R)' : '') +
+          '</div>';
+      }).join('');
+      outputEl.innerHTML =
+        '<div class="review-item"><strong>' + data.totalTrades + ' closed trades</strong> — ' + data.wins + 'W / ' + data.losses + 'L (' + data.winRate + '% win rate)' + (data.openTrades ? ', ' + data.openTrades + ' still open' : '') + '</div>' +
+        '<div class="review-item">Total: ' + data.totalRMultiple.toFixed(2) + 'R · Average: ' + data.averageRMultiple.toFixed(2) + 'R per trade' + (data.profitFactor != null ? ' · Profit factor: ' + data.profitFactor.toFixed(2) : '') + '</div>' +
+        (data.notes.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.notes.map(escapeHtml).join('<br>') + '</div>' : '') +
+        (rows ? '<div style="margin-top:0.75rem;max-height:260px;overflow-y:auto;">' + rows + '</div>' : '');
+    } catch (e) {
+      errorEl.textContent = 'Error: ' + e.message;
+      outputEl.textContent = '';
+    }
+  }
+
+  async function loadLiveLatest() {
+    const statusEl = document.getElementById('ai-live-status');
+    const errorEl = document.getElementById('ai-ca-error');
+    const resultsEl = document.getElementById('ai-ca-results');
+    errorEl.textContent = '';
+
+    const symbol = document.getElementById('ai-live-symbol').value.trim();
+    const timeframe = document.getElementById('ai-live-timeframe').value.trim();
+    if (!symbol || !timeframe) {
+      statusEl.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).';
+      return;
+    }
+
+    const base = getApiBase();
+    if (!base) { errorEl.textContent = 'Set your backend URL above first.'; return; }
+
+    try {
+      const res = await fetch(base + '/api/v1/live/latest?symbol=' + encodeURIComponent(symbol) + '&timeframe=' + encodeURIComponent(timeframe));
+      if (res.status === 404) {
+        statusEl.textContent = 'No live data yet for ' + symbol + ' ' + timeframe + ' — make sure your MT5 EA is attached, running, and has pushed at least one update.';
+        resultsEl.style.display = 'none';
+        return;
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(function () { return ''; });
+        throw new Error(res.status + ': ' + text.slice(0, 200));
+      }
+      const data = await res.json();
+      lastChartAnalysisResult = data;
+      renderChartAnalysis(data.analysis);
+      renderTradeValidation(data.validation);
+      renderAiCoach(data.coach);
+      renderConfidenceMeter(data.coach.confidence);
+      renderMultiTimeframe(data.multiTimeframe);
+      resultsEl.style.display = 'block';
+      statusEl.textContent = 'Last updated: ' + new Date(data.updatedAt).toLocaleString();
+    } catch (e) {
+      errorEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function startLiveAutoRefresh() {
+    stopLiveAutoRefresh();
+    loadLiveLatest();
+    liveAutoRefreshTimer = setInterval(loadLiveLatest, 30000);
+  }
+
+  function stopLiveAutoRefresh() {
+    if (liveAutoRefreshTimer) {
+      clearInterval(liveAutoRefreshTimer);
+      liveAutoRefreshTimer = null;
+    }
+  }
+
   window.aiSaveApiBase = function () {
     const input = document.getElementById('ai-api-base-input');
     setApiBase(input.value.trim());
@@ -5145,6 +5291,8 @@ if ('serviceWorker' in navigator) {
   window.aiRunTradeReview = runTradeReview;
   window.aiRunSessionDetect = runSessionDetect;
   window.aiRunNewsCheck = runNewsCheck;
+  window.aiRunBacktest = runBacktest;
+  window.aiLoadLiveLatest = loadLiveLatest;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
@@ -5152,17 +5300,32 @@ if ('serviceWorker' in navigator) {
 
     const modeImage = document.getElementById('ai-ca-mode-image');
     const modeCandles = document.getElementById('ai-ca-mode-candles');
+    const modeLive = document.getElementById('ai-ca-mode-live');
     const imageInput = document.getElementById('ai-ca-image-input');
     const candlesInput = document.getElementById('ai-ca-candles-input');
+    const liveInput = document.getElementById('ai-ca-live-input');
     function syncCaMode() {
-      const isImage = modeImage.checked;
-      imageInput.style.display = isImage ? '' : 'none';
-      candlesInput.style.display = isImage ? 'none' : '';
+      const current = modeLive.checked ? 'live' : (modeImage.checked ? 'image' : 'candles');
+      imageInput.style.display = current === 'image' ? '' : 'none';
+      candlesInput.style.display = current === 'candles' ? '' : 'none';
+      liveInput.style.display = current === 'live' ? '' : 'none';
+      stopLiveAutoRefresh();
+      if (current !== 'live') {
+        const cb = document.getElementById('ai-live-autorefresh');
+        if (cb) cb.checked = false;
+      }
     }
-    if (modeImage && modeCandles) {
+    if (modeImage && modeCandles && modeLive) {
       modeImage.addEventListener('change', syncCaMode);
       modeCandles.addEventListener('change', syncCaMode);
+      modeLive.addEventListener('change', syncCaMode);
       syncCaMode();
+    }
+    const autoRefreshCb = document.getElementById('ai-live-autorefresh');
+    if (autoRefreshCb) {
+      autoRefreshCb.addEventListener('change', function () {
+        if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
+      });
     }
   });
 })();
