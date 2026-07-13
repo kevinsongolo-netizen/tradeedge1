@@ -1629,6 +1629,12 @@ body::before {
         <label class="form-label">Additional Notes</label>
         <textarea class="form-textarea" id="j-notes" placeholder="Session, emotions, market context, screenshots..."></textarea>
       </div>
+      <div class="form-group" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:0.5rem;">
+        <label class="form-label">AI Review (after close)</label>
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Add an exit price above, then get a plain-language review of what worked, what went wrong, and the one lesson worth remembering.</div>
+        <button class="btn" onclick="aiRunTradeReview()">Get AI Review</button>
+        <div id="ai-review-output" style="margin-top:0.75rem;"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeJournalModal()">Cancel</button>
@@ -4517,6 +4523,11 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
+    <div class="form-group">
+      <label class="form-label">Pair / Instrument (used when saving to journal)</label>
+      <input type="text" class="form-input" id="ai-ca-pair" placeholder="e.g. GER40Cash, EURUSD, BTCUSD">
+    </div>
+
     <div id="ai-ca-image-input">
       <div class="form-group">
         <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
@@ -4569,17 +4580,42 @@ if ('serviceWorker' in navigator) {
         <h4 style="margin-bottom:0.75rem;">AI Coach</h4>
         <div id="ai-ca-coach-output"></div>
       </div>
-      <div class="card">
+      <div class="card" style="margin-bottom:1rem;">
         <h4 style="margin-bottom:0.75rem;">Confidence Meter</h4>
         <div id="ai-ca-confidence-output"></div>
       </div>
+      <button class="btn btn-primary" onclick="aiSaveChartAnalysisToJournal()">Save this trade to journal</button>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Position Size Calculator</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Risk-based lot sizing — works for forex, indices, metals, or crypto. Run a Chart Analysis above first and click "Use these levels" to auto-fill entry/SL/TP.</p>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Account Balance</label><input type="number" step="any" class="form-input" id="ai-ps-balance" placeholder="1000"></div>
+      <div class="form-group"><label class="form-label">Risk %</label><input type="number" step="any" class="form-input" id="ai-ps-risk-percent" placeholder="1.0"></div>
+      <div class="form-group"><label class="form-label">Or Risk $ (overrides %)</label><input type="number" step="any" class="form-input" id="ai-ps-risk-amount" placeholder="optional"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Entry</label><input type="number" step="any" class="form-input" id="ai-ps-entry" placeholder="0.00"></div>
+      <div class="form-group"><label class="form-label">Stop Loss</label><input type="number" step="any" class="form-input" id="ai-ps-sl" placeholder="0.00"></div>
+      <div class="form-group"><label class="form-label">Take Profit (optional)</label><input type="number" step="any" class="form-input" id="ai-ps-tp" placeholder="0.00"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Value per point per lot</label><input type="number" step="any" class="form-input" id="ai-ps-vpp" placeholder="e.g. 10"></div>
+      <div class="form-group"><label class="form-label">Lot step</label><input type="number" step="any" class="form-input" id="ai-ps-lotstep" placeholder="0.01" value="0.01"></div>
+    </div>
+    <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:1rem;">"Value per point per lot" = how much a 1.00 lot position moves in your account currency per 1.0 unit of price change. Check your broker's symbol specification (MT5: right-click a symbol in Market Watch → Specification → "Tick value").</div>
+    <button class="btn btn-primary" onclick="aiRunPositionSize()">Calculate position size</button>
+    <div id="ai-ps-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+    <div id="ai-ps-output" style="margin-top:1rem;"></div>
   </div>
 </div>
 
 <script>
 (function () {
   const STORAGE_KEY = 'te_ai_backend_url';
+  let lastChartAnalysisResult = null;
 
   function getApiBase() {
     return localStorage.getItem(STORAGE_KEY) || '';
@@ -4767,7 +4803,7 @@ if ('serviceWorker' in navigator) {
       (v.reasonsPassed.length ? '<div class="review-item" style="color:var(--green)">✓ ' + v.reasonsPassed.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
       (v.reasonsFailed.length ? '<div class="review-item" style="color:var(--red)">✗ ' + v.reasonsFailed.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
       ((v.suggestedEntry != null || v.stopLoss != null || v.takeProfit != null)
-        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '</div>'
+        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '<br><button class="btn" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="aiUseValidationLevelsInCalculator()">Use these levels in Position Size Calculator</button></div>'
         : '');
   }
 
@@ -4851,6 +4887,7 @@ if ('serviceWorker' in navigator) {
         };
         data = await apiFetch('/api/v1/chart/full-analysis/candles', { method: 'POST', body: JSON.stringify(body) });
       }
+      lastChartAnalysisResult = data;
       renderChartAnalysis(data.analysis);
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
@@ -4858,6 +4895,138 @@ if ('serviceWorker' in navigator) {
       resultsEl.style.display = 'block';
     } catch (e) {
       errorEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function mapZoneTypeToPoi(zoneType) {
+    if (!zoneType) return '';
+    if (zoneType === 'Order Block') return 'Order Block';
+    if (zoneType === 'Fair Value Gap') return 'Fair Value Gap (FVG)';
+    return 'Other';
+  }
+
+  function saveChartAnalysisToJournal() {
+    if (!lastChartAnalysisResult) {
+      if (typeof showToast === 'function') showToast('Run "Analyze chart" first.', 'error');
+      return;
+    }
+    const pairInput = document.getElementById('ai-ca-pair');
+    const pair = pairInput ? pairInput.value.trim() : '';
+    if (!pair) {
+      if (typeof showToast === 'function') showToast('Enter a pair/instrument first.', 'error');
+      return;
+    }
+    const { analysis, validation, coach } = lastChartAnalysisResult;
+
+    if (typeof openJournalModal === 'function') openJournalModal();
+
+    const setVal = function (id, value) {
+      const el = document.getElementById(id);
+      if (el && value !== null && value !== undefined && value !== '') el.value = value;
+    };
+
+    setVal('j-pair', pair);
+    const dir = (validation.direction || analysis.bias || '').toLowerCase();
+    if (dir === 'buy' || dir === 'sell') setVal('j-direction', dir);
+    setVal('j-entry', validation.suggestedEntry);
+    setVal('j-sl', validation.stopLoss);
+    setVal('j-tp', validation.takeProfit);
+    setVal('j-rr', validation.riskReward);
+    const poi = mapZoneTypeToPoi(analysis.entryZone && analysis.entryZone.zoneType);
+    if (poi) setVal('j-poi', poi);
+
+    const noteLines = [];
+    const sourceLabel = analysis.isPlaceholder
+      ? 'example/placeholder data'
+      : (analysis.source === 'screenshot' ? 'AI vision read' : 'candle data read');
+    noteLines.push('Chart Analysis Engine (' + sourceLabel + '): ' + validation.tradeStatus + ' — ' + validation.recommendation + '.');
+    if (coach && coach.explanation) noteLines.push.apply(noteLines, coach.explanation);
+    setVal('j-notes', noteLines.join(' '));
+
+    if (typeof showToast === 'function') showToast('Trade pre-filled from Chart Analysis — review and Save.', 'success');
+  }
+
+  function useValidationLevelsInCalculator() {
+    if (!lastChartAnalysisResult) return;
+    const { validation } = lastChartAnalysisResult;
+    const setVal = function (id, value) {
+      const el = document.getElementById(id);
+      if (el && value !== null && value !== undefined) el.value = value;
+    };
+    setVal('ai-ps-entry', validation.suggestedEntry);
+    setVal('ai-ps-sl', validation.stopLoss);
+    setVal('ai-ps-tp', validation.takeProfit);
+    const calcCard = document.getElementById('ai-ps-balance');
+    if (calcCard) calcCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function runPositionSize() {
+    const errorEl = document.getElementById('ai-ps-error');
+    const outputEl = document.getElementById('ai-ps-output');
+    errorEl.textContent = '';
+    outputEl.innerHTML = '';
+
+    const balance = parseFloat(document.getElementById('ai-ps-balance').value);
+    const riskPercent = parseFloat(document.getElementById('ai-ps-risk-percent').value);
+    const riskAmount = parseFloat(document.getElementById('ai-ps-risk-amount').value);
+    const entry = parseFloat(document.getElementById('ai-ps-entry').value);
+    const sl = parseFloat(document.getElementById('ai-ps-sl').value);
+    const tp = parseFloat(document.getElementById('ai-ps-tp').value);
+    const vpp = parseFloat(document.getElementById('ai-ps-vpp').value);
+    const lotStep = parseFloat(document.getElementById('ai-ps-lotstep').value);
+
+    const body = {
+      accountBalance: isNaN(balance) ? null : balance,
+      riskPercent: isNaN(riskPercent) ? null : riskPercent,
+      riskAmount: isNaN(riskAmount) ? null : riskAmount,
+      entry: isNaN(entry) ? null : entry,
+      stopLoss: isNaN(sl) ? null : sl,
+      takeProfit: isNaN(tp) ? null : tp,
+      valuePerPointPerLot: isNaN(vpp) ? null : vpp,
+      lotStep: isNaN(lotStep) ? 0.01 : lotStep,
+    };
+
+    try {
+      const data = await apiFetch('/api/v1/tools/position-size', { method: 'POST', body: JSON.stringify(body) });
+      outputEl.innerHTML =
+        '<div class="review-item"><strong>Recommended size:</strong> ' + data.recommendedLots + ' lots</div>' +
+        '<div class="review-item">Risking ' + '$' + data.actualRiskAmount.toFixed(2) + ' (target was $' + data.riskAmount.toFixed(2) + ')</div>' +
+        (data.potentialProfit != null ? '<div class="review-item">Potential profit at TP: $' + data.potentialProfit.toFixed(2) + (data.riskReward != null ? ' (R:R ' + data.riskReward.toFixed(2) + ')' : '') + '</div>' : '') +
+        (data.warnings.length ? '<div class="review-item" style="color:var(--red)">⚠ ' + data.warnings.map(escapeHtml).join('<br>⚠ ') + '</div>' : '');
+    } catch (e) {
+      errorEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  async function runTradeReview() {
+    const el = document.getElementById('ai-review-output');
+    if (!el) return;
+    const exit = document.getElementById('j-exit').value;
+    if (!exit) { el.textContent = 'Add an exit price first — this trade isn\'t closed yet.'; return; }
+    el.textContent = 'Reviewing...';
+    const body = {
+      pair: (document.getElementById('j-pair').value || '').trim() || null,
+      direction: document.getElementById('j-direction').value,
+      entry: numOrNull(document.getElementById('j-entry').value),
+      exit: numOrNull(exit),
+      pnl: numOrNull(document.getElementById('j-pnl').value),
+      rr: numOrNull(document.getElementById('j-rr').value),
+      rulesFollowed: document.getElementById('j-rules-followed').value,
+      workedTags: (typeof selectedWorkedTags !== 'undefined') ? [...selectedWorkedTags] : [],
+      failedTags: (typeof selectedFailedTags !== 'undefined') ? [...selectedFailedTags] : [],
+      exitReason: document.getElementById('j-exit-reason').value || null,
+      h4PoiType: document.getElementById('j-poi').value || null,
+      notes: document.getElementById('j-notes').value || null,
+    };
+    try {
+      const data = await apiFetch('/api/v1/coach/review-trade', { method: 'POST', body: JSON.stringify(body) });
+      el.innerHTML =
+        '<div class="review-item"><strong>' + escapeHtml(data.headline) + '</strong></div>' +
+        (data.whatWorked.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.whatWorked.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
+        (data.whatWentWrong.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.whatWentWrong.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
+        '<div class="review-item"><strong>Lesson:</strong> ' + escapeHtml(data.lesson) + '</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
     }
   }
 
@@ -4870,6 +5039,10 @@ if ('serviceWorker' in navigator) {
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiRunPretrade = runPretradeCheck;
   window.aiRunChartAnalysis = runChartAnalysis;
+  window.aiSaveChartAnalysisToJournal = saveChartAnalysisToJournal;
+  window.aiUseValidationLevelsInCalculator = useValidationLevelsInCalculator;
+  window.aiRunPositionSize = runPositionSize;
+  window.aiRunTradeReview = runTradeReview;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
