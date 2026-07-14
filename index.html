@@ -4724,6 +4724,37 @@ if ('serviceWorker' in navigator) {
       <div id="ai-ml-active" style="font-size:0.85rem;">Loading...</div>
     </div>
   </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Live Opportunity Scanner</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches every symbol/timeframe you have an MT5 EA running on and tells you the moment any of them has a VALID setup &mdash; no more flipping between charts one at a time. Requires the Live MT5 Feed EA to already be attached and pushing for each asset you add here.</p>
+
+    <div class="form-row" style="align-items:end;">
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Symbol</label>
+        <input type="text" class="form-input" id="ai-scan-add-symbol" placeholder="e.g. GBPUSD" list="ai-live-symbol-list" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Timeframe</label>
+        <input type="text" class="form-input" id="ai-scan-add-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <button class="btn btn-primary" onclick="aiScannerAdd()">Add to scanner</button>
+      </div>
+    </div>
+
+    <div id="ai-scan-list" style="margin-top:1rem;"></div>
+
+    <div style="display:flex;align-items:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="aiScannerScanNow()">Scan now</button>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="ai-scan-autorefresh"> Auto-scan every 30 seconds
+      </label>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="ai-scan-notify"> Pop a browser notification on a new VALID setup
+      </label>
+    </div>
+    <div id="ai-scan-status" style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);"></div>
+    <div id="ai-scan-results" style="margin-top:1rem;"></div>
+  </div>
 </div>
 
 <script>
@@ -5416,6 +5447,173 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // === Sprint 16: Live Opportunity Scanner ================================
+  // Watches a user-maintained list of {symbol, timeframe} pairs by polling
+  // the existing GET /live/latest endpoint for each one (no new backend
+  // endpoint needed) and surfaces which ones currently have a VALID setup.
+  const SCAN_LIST_KEY = 'te_ai_scan_list';
+  const SCAN_NOTIFY_KEY = 'te_ai_scan_notify';
+  let scanAutoRefreshTimer = null;
+  let scanLastStatus = {}; // "SYMBOL|TIMEFRAME" -> last known tradeStatus, to detect new VALIDs
+
+  function getScanList() {
+    try {
+      const raw = localStorage.getItem(SCAN_LIST_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function setScanList(list) {
+    localStorage.setItem(SCAN_LIST_KEY, JSON.stringify(list));
+  }
+
+  function renderScanList() {
+    const el = document.getElementById('ai-scan-list');
+    const list = getScanList();
+    if (!list.length) {
+      el.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);">No assets added yet &mdash; add each symbol/timeframe your MT5 EA is pushing.</div>';
+      return;
+    }
+    el.innerHTML = list.map(function (item, i) {
+      return '<span class="tag-btn" style="margin:0 0.4rem 0.4rem 0;display:inline-flex;align-items:center;gap:0.4rem;">' +
+        escapeHtml(item.symbol) + ' &middot; ' + escapeHtml(item.timeframe) +
+        ' <span onclick="aiScannerRemove(' + i + ')" style="cursor:pointer;color:var(--red);">&times;</span></span>';
+    }).join('');
+  }
+
+  window.aiScannerAdd = function () {
+    const symbolInput = document.getElementById('ai-scan-add-symbol');
+    const timeframeInput = document.getElementById('ai-scan-add-timeframe');
+    const symbol = symbolInput.value.trim();
+    const timeframe = timeframeInput.value.trim();
+    if (!symbol || !timeframe) return;
+    const list = getScanList();
+    const exists = list.some(function (item) {
+      return item.symbol.toLowerCase() === symbol.toLowerCase() && item.timeframe.toLowerCase() === timeframe.toLowerCase();
+    });
+    if (!exists) {
+      list.push({ symbol: symbol, timeframe: timeframe });
+      setScanList(list);
+      renderScanList();
+    }
+    symbolInput.value = '';
+    timeframeInput.value = '';
+  };
+
+  window.aiScannerRemove = function (index) {
+    const list = getScanList();
+    list.splice(index, 1);
+    setScanList(list);
+    renderScanList();
+  };
+
+  function scanConfidence(data) {
+    return data && data.coach && data.coach.confidence && data.coach.confidence.overall != null
+      ? data.coach.confidence.overall
+      : null;
+  }
+
+  window.aiScannerScanNow = async function () {
+    const list = getScanList();
+    const statusEl = document.getElementById('ai-scan-status');
+    const resultsEl = document.getElementById('ai-scan-results');
+    if (!list.length) {
+      statusEl.textContent = 'Add at least one symbol/timeframe above first.';
+      resultsEl.innerHTML = '';
+      return;
+    }
+    const base = getApiBase();
+    if (!base) { statusEl.textContent = 'Set your backend URL above first.'; return; }
+
+    statusEl.textContent = 'Scanning ' + list.length + ' asset(s)...';
+    const rows = await Promise.all(list.map(async function (item) {
+      const key = item.symbol.toUpperCase() + '|' + item.timeframe.toUpperCase();
+      try {
+        const res = await fetch(base + '/api/v1/live/latest?symbol=' + encodeURIComponent(item.symbol) + '&timeframe=' + encodeURIComponent(item.timeframe));
+        if (res.status === 404) {
+          return { item: item, key: key, state: 'no-data' };
+        }
+        if (!res.ok) {
+          return { item: item, key: key, state: 'error' };
+        }
+        const data = await res.json();
+        const tradeStatus = data.validation && data.validation.tradeStatus ? data.validation.tradeStatus : 'UNKNOWN';
+        return { item: item, key: key, state: 'ok', data: data, tradeStatus: tradeStatus };
+      } catch (e) {
+        return { item: item, key: key, state: 'error' };
+      }
+    }));
+
+    // Detect newly-VALID assets (weren't VALID on the previous scan) for
+    // the notification/toast, before re-sorting for display.
+    const newlyValid = rows.filter(function (r) {
+      return r.state === 'ok' && r.tradeStatus === 'VALID' && scanLastStatus[r.key] !== 'VALID';
+    });
+    rows.forEach(function (r) {
+      if (r.state === 'ok') scanLastStatus[r.key] = r.tradeStatus;
+    });
+
+    // VALID first, then everything else, alphabetical within each group.
+    rows.sort(function (a, b) {
+      const aValid = a.state === 'ok' && a.tradeStatus === 'VALID' ? 0 : 1;
+      const bValid = b.state === 'ok' && b.tradeStatus === 'VALID' ? 0 : 1;
+      if (aValid !== bValid) return aValid - bValid;
+      return a.key.localeCompare(b.key);
+    });
+
+    resultsEl.innerHTML = rows.map(function (r) {
+      const label = escapeHtml(r.item.symbol) + ' &middot; ' + escapeHtml(r.item.timeframe);
+      if (r.state === 'no-data') {
+        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; no live data yet (check the EA is attached and running).</div>';
+      }
+      if (r.state === 'error') {
+        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; couldn\'t fetch right now.</div>';
+      }
+      const isValid = r.tradeStatus === 'VALID';
+      const conf = scanConfidence(r.data);
+      const direction = r.data.validation && r.data.validation.direction ? r.data.validation.direction : '';
+      const trend = r.data.analysis && r.data.analysis.trend ? r.data.analysis.trend : '';
+      return '<div class="review-item" style="' + (isValid ? 'border-color:var(--green);background:var(--green-dim);' : '') + '">' +
+        '<strong style="' + (isValid ? 'color:var(--green);' : '') + '">' + label + ' &mdash; ' + escapeHtml(r.tradeStatus) + (direction ? ' (' + escapeHtml(direction) + ')' : '') + '</strong>' +
+        '<br><span style="font-size:0.78rem;color:var(--text-secondary);">Trend: ' + escapeHtml(trend) + (conf != null ? ' &middot; Confidence: ' + conf + '%' : '') + '</span>' +
+        '</div>';
+    }).join('') || '<div style="font-size:0.82rem;color:var(--text-muted);">No results.</div>';
+
+    statusEl.textContent = 'Last scanned: ' + new Date().toLocaleTimeString();
+
+    if (newlyValid.length) {
+      const msg = newlyValid.map(function (r) {
+        return r.item.symbol + ' ' + r.item.timeframe + (r.data.validation.direction ? ' (' + r.data.validation.direction + ')' : '');
+      }).join(', ');
+      if (typeof showToast === 'function') showToast('VALID setup found: ' + msg, 'success');
+      const notifyEnabled = document.getElementById('ai-scan-notify') && document.getElementById('ai-scan-notify').checked;
+      if (notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        newlyValid.forEach(function (r) {
+          try {
+            new Notification('TradeEdge: VALID setup', {
+              body: r.item.symbol + ' ' + r.item.timeframe + ' is ready to trade.',
+            });
+          } catch (e) { /* ignore -- some browsers restrict this outside a user gesture */ }
+        });
+      }
+    }
+  };
+
+  function startScanAutoRefresh() {
+    stopScanAutoRefresh();
+    aiScannerScanNow();
+    scanAutoRefreshTimer = setInterval(aiScannerScanNow, 30000);
+  }
+  function stopScanAutoRefresh() {
+    if (scanAutoRefreshTimer) {
+      clearInterval(scanAutoRefreshTimer);
+      scanAutoRefreshTimer = null;
+    }
+  }
+
   window.aiSaveApiBase = function () {
     const input = document.getElementById('ai-api-base-input');
     setApiBase(input.value.trim());
@@ -5477,6 +5675,25 @@ if ('serviceWorker' in navigator) {
     if (autoRefreshCb) {
       autoRefreshCb.addEventListener('change', function () {
         if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
+      });
+    }
+
+    // Sprint 16: Live Opportunity Scanner init
+    renderScanList();
+    const scanNotifyCb = document.getElementById('ai-scan-notify');
+    if (scanNotifyCb) {
+      scanNotifyCb.checked = localStorage.getItem(SCAN_NOTIFY_KEY) === '1';
+      scanNotifyCb.addEventListener('change', function () {
+        localStorage.setItem(SCAN_NOTIFY_KEY, scanNotifyCb.checked ? '1' : '0');
+        if (scanNotifyCb.checked && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+      });
+    }
+    const scanAutoRefreshCb = document.getElementById('ai-scan-autorefresh');
+    if (scanAutoRefreshCb) {
+      scanAutoRefreshCb.addEventListener('change', function () {
+        if (scanAutoRefreshCb.checked) startScanAutoRefresh(); else stopScanAutoRefresh();
       });
     }
   });
