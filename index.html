@@ -4482,7 +4482,7 @@ if ('serviceWorker' in navigator) {
   <div class="card">
     <h3 style="margin-bottom:1rem;">Pre-Trade Check</h3>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD"></div>
+      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" list="ai-ca-pair-list" autocomplete="off"></div>
       <div class="form-group"><label class="form-label">Direction</label>
         <select class="form-select" id="ai-pt-direction"><option value="buy">Buy</option><option value="sell">Sell</option></select>
       </div>
@@ -4528,7 +4528,20 @@ if ('serviceWorker' in navigator) {
 
     <div class="form-group">
       <label class="form-label">Pair / Instrument (used when saving to journal)</label>
-      <input type="text" class="form-input" id="ai-ca-pair" placeholder="e.g. GER40Cash, EURUSD, BTCUSD">
+      <input type="text" class="form-input" id="ai-ca-pair" placeholder="e.g. GER40Cash, EURUSD, BTCUSD" list="ai-ca-pair-list" autocomplete="off">
+      <datalist id="ai-ca-pair-list">
+        <option value="GBPUSD"></option>
+        <option value="EURUSD"></option>
+        <option value="USDCAD"></option>
+        <option value="AUDUSD"></option>
+        <option value="NZDUSD"></option>
+        <option value="GBPJPY"></option>
+        <option value="GOLD"></option>
+        <option value="US100Cash"></option>
+        <option value="US30Cash"></option>
+        <option value="GER40Cash"></option>
+        <option value="BTCUSD"></option>
+      </datalist>
     </div>
 
     <div id="ai-ca-image-input">
@@ -4551,8 +4564,31 @@ if ('serviceWorker' in navigator) {
 
     <div id="ai-ca-live-input" style="display:none;">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-live-symbol" placeholder="e.g. EURUSD, GER40Cash"></div>
-        <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-live-timeframe" placeholder="e.g. H4"></div>
+        <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label>
+          <input type="text" class="form-input" id="ai-live-symbol" placeholder="e.g. EURUSD, GER40Cash" list="ai-live-symbol-list" autocomplete="off">
+          <datalist id="ai-live-symbol-list">
+            <option value="GBPUSD"></option>
+            <option value="EURUSD"></option>
+            <option value="USDCAD"></option>
+            <option value="AUDUSD"></option>
+            <option value="NZDUSD"></option>
+            <option value="GBPJPY"></option>
+            <option value="GOLD"></option>
+            <option value="US100Cash"></option>
+            <option value="US30Cash"></option>
+            <option value="GER40Cash"></option>
+          </datalist>
+        </div>
+        <div class="form-group"><label class="form-label">Timeframe</label>
+          <input type="text" class="form-input" id="ai-live-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
+          <datalist id="ai-live-timeframe-list">
+            <option value="M15"></option>
+            <option value="M30"></option>
+            <option value="H1"></option>
+            <option value="H4"></option>
+            <option value="D1"></option>
+          </datalist>
+        </div>
       </div>
       <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
         <input type="checkbox" id="ai-live-autorefresh" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Auto-refresh every 30 seconds</label>
@@ -4819,7 +4855,7 @@ if ('serviceWorker' in navigator) {
       };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
       const mlLine = data.mlAvailable
-        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model v' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
+        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
         : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
       el.innerHTML =
         '<div class="review-item"><strong>Recommendation: ' + escapeHtml(data.recommendation) + '</strong><br>' +
@@ -5252,6 +5288,10 @@ if ('serviceWorker' in navigator) {
       statusEl.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).';
       return;
     }
+    // Remember the last symbol/timeframe used so it's pre-filled next visit --
+    // no need to retype it every time.
+    localStorage.setItem('te_ai_live_symbol', symbol);
+    localStorage.setItem('te_ai_live_timeframe', timeframe);
 
     const base = getApiBase();
     if (!base) { errorEl.textContent = 'Set your backend URL above first.'; return; }
@@ -5317,7 +5357,7 @@ if ('serviceWorker' in navigator) {
       return;
     }
     el.innerHTML =
-      '<strong>v' + escapeHtml(m.version) + '</strong> (' + escapeHtml(m.algorithm || 'unknown') + ')' +
+      '<strong>' + escapeHtml(m.version) + '</strong> (' + escapeHtml(m.algorithm || 'unknown') + ')' +
       (m.trainedAt ? ' &middot; trained ' + escapeHtml(new Date(m.trainedAt).toLocaleString()) : '') +
       (m.trainingRows != null ? ' &middot; ' + m.trainingRows + ' trades used' : '');
   }
@@ -5364,7 +5404,7 @@ if ('serviceWorker' in navigator) {
     try {
       const data = await apiFetch('/api/v1/ml/train', { method: 'POST', body: JSON.stringify({}) });
       outputEl.innerHTML =
-        '<div class="review-item"><strong>Trained v' + escapeHtml(data.version) + '</strong> (' + escapeHtml(data.algorithm) + ') on ' + data.rowsUsed + ' trades ' +
+        '<div class="review-item"><strong>Trained ' + escapeHtml(data.version) + '</strong> (' + escapeHtml(data.algorithm) + ') on ' + data.rowsUsed + ' trades ' +
         '(' + data.splitSizes.train + ' train / ' + data.splitSizes.val + ' val / ' + data.splitSizes.test + ' test).</div>' +
         '<div class="review-item">Test accuracy: ' + (data.testMetrics.accuracy * 100).toFixed(1) + '% &middot; F1: ' + data.testMetrics.f1.toFixed(2) +
         (data.testMetrics.rocAuc != null ? ' &middot; ROC AUC: ' + data.testMetrics.rocAuc.toFixed(2) : '') + '</div>' +
@@ -5400,6 +5440,15 @@ if ('serviceWorker' in navigator) {
     const input = document.getElementById('ai-api-base-input');
     if (input) input.value = getApiBase();
     aiLoadActiveMlModel();
+
+    // Pre-fill the last symbol/timeframe used on the live feed, so it's not
+    // retyped every visit.
+    const liveSymbolInput = document.getElementById('ai-live-symbol');
+    const liveTimeframeInput = document.getElementById('ai-live-timeframe');
+    const savedLiveSymbol = localStorage.getItem('te_ai_live_symbol');
+    const savedLiveTimeframe = localStorage.getItem('te_ai_live_timeframe');
+    if (liveSymbolInput && savedLiveSymbol) liveSymbolInput.value = savedLiveSymbol;
+    if (liveTimeframeInput && savedLiveTimeframe) liveTimeframeInput.value = savedLiveTimeframe;
 
     const modeImage = document.getElementById('ai-ca-mode-image');
     const modeCandles = document.getElementById('ai-ca-mode-candles');
