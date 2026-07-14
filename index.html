@@ -4471,6 +4471,15 @@ if ('serviceWorker' in navigator) {
     </div>
     <button class="btn" onclick="aiSyncTrades()">Sync my trades to AI backend</button>
     <span id="ai-sync-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
+      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">Auto-journal from MT5 (<code>TradeEdgeAutoJournal.mq5</code>): pulls in trades your MT5 EA has opened/closed automatically -- you still fill in rules/tags/notes yourself afterward.</div>
+      <button class="btn btn-primary" onclick="aiImportMt5Trades()">Check for new trades</button>
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;margin-left:1rem;">
+        <input type="checkbox" id="ai-mt5-import-autocheck"> Auto-check every 60 seconds
+      </label>
+      <span id="ai-mt5-import-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+    </div>
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
@@ -4842,6 +4851,86 @@ if ('serviceWorker' in navigator) {
       }
     }
     statusEl.textContent = 'Synced ' + ok + ' trades' + (fail ? (', ' + fail + ' failed (see browser console)') : '') + '.';
+  }
+
+  // === Sprint 17: import auto-journaled MT5 trades =======================
+  // TradeEdgeAutoJournal.mq5 posts trade open/close events straight to
+  // POST /api/v1/trades (the AI backend's own copy of trade data), using
+  // ids like "mt5-{account}-{positionId}". Those never automatically flow
+  // into the website's own journal (which lives in localStorage/Supabase,
+  // a separate store -- see toBackendTrade() for the one-way "push local
+  // trades up to the backend" direction already built). This function is
+  // the missing "pull" direction: fetch anything with an "mt5-" id and
+  // merge it into the local journal.
+  let mt5ImportAutoTimer = null;
+
+  async function importMt5Trades() {
+    const statusEl = document.getElementById('ai-mt5-import-status');
+    if (!statusEl) return;
+    statusEl.textContent = 'Checking for new trades...';
+    try {
+      const data = await apiFetch('/api/v1/trades?limit=500');
+      const items = (data.items || []).filter(function (t) {
+        return t.id && t.id.indexOf('mt5-') === 0;
+      });
+      if (!items.length) {
+        statusEl.textContent = 'No MT5-linked trades found yet -- make sure TradeEdgeAutoJournal.mq5 is attached and you have at least one trade opened/closed.';
+        return;
+      }
+
+      let journal;
+      try {
+        journal = getCurrentJournal();
+      } catch (e) {
+        statusEl.textContent = 'Could not read your journal (unexpected app state).';
+        return;
+      }
+
+      let added = 0, updated = 0;
+      items.forEach(function (t) {
+        const idx = journal.findIndex(function (j) { return j.id === t.id; });
+        const fields = {
+          date: t.date, pair: t.pair, direction: t.direction, asset: t.asset,
+          entry: t.entry, exit: t.exit, sl: t.sl, tp: t.tp, lots: t.lots,
+          pnl: t.pnl, rr: t.rr, poi: t.h4PoiType, session: t.session,
+          exitReason: t.exitReason,
+        };
+        if (idx >= 0) {
+          // Merge, not replace -- never blank out notes/tags/rules the
+          // user already filled in manually on this entry.
+          const existing = journal[idx];
+          Object.keys(fields).forEach(function (k) {
+            if (fields[k] !== null && fields[k] !== undefined) existing[k] = fields[k];
+          });
+          updated++;
+        } else {
+          journal.unshift(Object.assign({ id: t.id, workedTags: [], failedTags: [] }, fields));
+          added++;
+        }
+      });
+
+      if (typeof saveJournal === 'function') saveJournal();
+      if (typeof renderJournal === 'function') renderJournal();
+
+      statusEl.textContent = added + ' new, ' + updated + ' updated (of ' + items.length + ' MT5-linked trades checked).';
+      if (added > 0 && typeof showToast === 'function') {
+        showToast(added + ' new trade' + (added === 1 ? '' : 's') + ' imported from MT5.', 'success');
+      }
+    } catch (e) {
+      statusEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function startMt5ImportAutoCheck() {
+    stopMt5ImportAutoCheck();
+    importMt5Trades();
+    mt5ImportAutoTimer = setInterval(importMt5Trades, 60000);
+  }
+  function stopMt5ImportAutoCheck() {
+    if (mt5ImportAutoTimer) {
+      clearInterval(mt5ImportAutoTimer);
+      mt5ImportAutoTimer = null;
+    }
   }
 
   async function loadCoachDeepDive() {
@@ -5620,6 +5709,7 @@ if ('serviceWorker' in navigator) {
     if (typeof showToast === 'function') showToast('Backend URL saved.', 'success');
   };
   window.aiSyncTrades = syncTradesToBackend;
+  window.aiImportMt5Trades = importMt5Trades;
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiRunPretrade = runPretradeCheck;
   window.aiRunChartAnalysis = runChartAnalysis;
@@ -5675,6 +5765,14 @@ if ('serviceWorker' in navigator) {
     if (autoRefreshCb) {
       autoRefreshCb.addEventListener('change', function () {
         if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
+      });
+    }
+
+    // Sprint 17: MT5 auto-journal import init
+    const mt5ImportAutoCb = document.getElementById('ai-mt5-import-autocheck');
+    if (mt5ImportAutoCb) {
+      mt5ImportAutoCb.addEventListener('change', function () {
+        if (mt5ImportAutoCb.checked) startMt5ImportAutoCheck(); else stopMt5ImportAutoCheck();
       });
     }
 
