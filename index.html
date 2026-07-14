@@ -4674,6 +4674,20 @@ if ('serviceWorker' in navigator) {
     <div id="ai-bt-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
     <div id="ai-bt-output" style="margin-top:1rem;"></div>
   </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">AI Confidence Model (Machine Learning)</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Learns win/loss patterns from your own logged trade history and powers the win-probability shown in Pre-Trade Check. Needs a real sample of closed trades first &mdash; this card will always tell you honestly whether it's ready, never guess with too little data.</p>
+    <button class="btn" onclick="aiCheckMlReadiness()">Check my trade data</button>
+    <button class="btn btn-primary" onclick="aiTrainMlModel()">Train model</button>
+    <div id="ai-ml-readiness" style="margin-top:0.75rem;"></div>
+    <div id="ai-ml-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+    <div id="ai-ml-train-output" style="margin-top:0.75rem;"></div>
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:0.75rem;">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">Current active model</div>
+      <div id="ai-ml-active" style="font-size:0.85rem;">Loading...</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -4804,9 +4818,13 @@ if ('serviceWorker' in navigator) {
         hasLiquiditySweep: hasLiquiditySweep,
       };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
+      const mlLine = data.mlAvailable
+        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model v' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
+        : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
       el.innerHTML =
         '<div class="review-item"><strong>Recommendation: ' + escapeHtml(data.recommendation) + '</strong><br>' +
         'Quality score: ' + (data.tradeQualityScore ?? '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · Confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
+        mlLine +
         (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
         (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '');
     } catch (e) {
@@ -5276,6 +5294,88 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  function formatMlError(e) {
+    // apiFetch()'s Error.message is "STATUS: <raw response body>" -- try
+    // to pull the clean {"error":{"message":...}} envelope out of it so
+    // the "not enough data yet" message reads like a sentence, not JSON.
+    const msg = e && e.message ? e.message : String(e);
+    const jsonStart = msg.indexOf('{');
+    if (jsonStart >= 0) {
+      try {
+        const parsed = JSON.parse(msg.slice(jsonStart));
+        if (parsed && parsed.error && parsed.error.message) return parsed.error.message;
+      } catch (_) { /* not JSON, fall through */ }
+    }
+    return msg;
+  }
+
+  function renderMlActiveModel(m) {
+    const el = document.getElementById('ai-ml-active');
+    if (!el) return;
+    if (!m) {
+      el.innerHTML = '<span style="color:var(--text-muted);">No trained model yet &mdash; Pre-Trade Check will use rule-based estimates only until you train one.</span>';
+      return;
+    }
+    el.innerHTML =
+      '<strong>v' + escapeHtml(m.version) + '</strong> (' + escapeHtml(m.algorithm || 'unknown') + ')' +
+      (m.trainedAt ? ' &middot; trained ' + escapeHtml(new Date(m.trainedAt).toLocaleString()) : '') +
+      (m.trainingRows != null ? ' &middot; ' + m.trainingRows + ' trades used' : '');
+  }
+
+  async function aiLoadActiveMlModel() {
+    try {
+      const m = await apiFetch('/api/v1/ml/models/active');
+      renderMlActiveModel(m);
+    } catch (e) {
+      renderMlActiveModel(null);
+    }
+  }
+
+  async function aiCheckMlReadiness() {
+    const el = document.getElementById('ai-ml-readiness');
+    const errorEl = document.getElementById('ai-ml-error');
+    errorEl.textContent = '';
+    el.textContent = 'Checking your trade data...';
+    try {
+      const r = await apiFetch('/api/v1/ml/dataset/validation-report');
+      const pct = Math.min(100, Math.round((r.validTrades / r.minTrainingRows) * 100));
+      const barColor = r.readyForTraining ? 'var(--green)' : 'var(--yellow, #d9a441)';
+      el.innerHTML =
+        '<div style="font-size:0.85rem;margin-bottom:0.35rem;">' +
+        (r.readyForTraining
+          ? '<span style="color:var(--green);">Ready to train</span> &mdash; ' + r.validTrades + ' valid trades logged (need ' + r.minTrainingRows + ').'
+          : '<span style="color:' + barColor + ';">Not enough data yet</span> &mdash; ' + r.validTrades + ' of ' + r.minTrainingRows + ' valid trades needed' + (r.reason ? ': ' + escapeHtml(r.reason) : '.')) +
+        '</div>' +
+        '<div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;max-width:320px;">' +
+        '<div style="background:' + barColor + ';height:100%;width:' + pct + '%;"></div></div>' +
+        (r.invalidTrades ? '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.35rem;">' + r.invalidTrades + ' trade(s) skipped for missing fields.</div>' : '') +
+        '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem;">Win rate so far: ' + r.classDistribution.winRate + '%</div>';
+    } catch (e) {
+      el.textContent = '';
+      errorEl.textContent = formatMlError(e);
+    }
+  }
+
+  async function aiTrainMlModel() {
+    const outputEl = document.getElementById('ai-ml-train-output');
+    const errorEl = document.getElementById('ai-ml-error');
+    errorEl.textContent = '';
+    outputEl.textContent = 'Training model on your trade history...';
+    try {
+      const data = await apiFetch('/api/v1/ml/train', { method: 'POST', body: JSON.stringify({}) });
+      outputEl.innerHTML =
+        '<div class="review-item"><strong>Trained v' + escapeHtml(data.version) + '</strong> (' + escapeHtml(data.algorithm) + ') on ' + data.rowsUsed + ' trades ' +
+        '(' + data.splitSizes.train + ' train / ' + data.splitSizes.val + ' val / ' + data.splitSizes.test + ' test).</div>' +
+        '<div class="review-item">Test accuracy: ' + (data.testMetrics.accuracy * 100).toFixed(1) + '% &middot; F1: ' + data.testMetrics.f1.toFixed(2) +
+        (data.testMetrics.rocAuc != null ? ' &middot; ROC AUC: ' + data.testMetrics.rocAuc.toFixed(2) : '') + '</div>' +
+        (data.overfitWarning ? '<div class="review-item" style="color:var(--red);">Note: training accuracy is much higher than test accuracy &mdash; treat predictions with extra caution until you have more trades.</div>' : '');
+      aiLoadActiveMlModel();
+    } catch (e) {
+      outputEl.textContent = '';
+      errorEl.textContent = formatMlError(e);
+    }
+  }
+
   window.aiSaveApiBase = function () {
     const input = document.getElementById('ai-api-base-input');
     setApiBase(input.value.trim());
@@ -5293,10 +5393,13 @@ if ('serviceWorker' in navigator) {
   window.aiRunNewsCheck = runNewsCheck;
   window.aiRunBacktest = runBacktest;
   window.aiLoadLiveLatest = loadLiveLatest;
+  window.aiCheckMlReadiness = aiCheckMlReadiness;
+  window.aiTrainMlModel = aiTrainMlModel;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
     if (input) input.value = getApiBase();
+    aiLoadActiveMlModel();
 
     const modeImage = document.getElementById('ai-ca-mode-image');
     const modeCandles = document.getElementById('ai-ca-mode-candles');
