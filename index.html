@@ -4493,6 +4493,17 @@ if ('serviceWorker' in navigator) {
       </label>
       <span id="ai-mt5-import-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
     </div>
+
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
+      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">
+        <strong style="color:var(--red);">Clear all trades on the AI backend</strong> -- permanently deletes every trade in the AI backend's journal (e.g. starting fresh on a new MT5 account, so the AI Confidence Model and Coach stop mixing in old-account history). This does not touch your local Trade Journal tab -- only the copy the AI backend uses for coaching and ML training. This action is permanent and cannot be undone.
+      </div>
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        <input type="text" class="form-input" id="ai-clear-trades-confirm" placeholder="Type: DELETE ALL MY TRADES" style="max-width:280px;" autocomplete="off">
+        <button class="btn btn-danger" onclick="aiClearAllTrades()">Clear all trades</button>
+      </div>
+      <span id="ai-clear-trades-status" style="display:block;margin-top:0.5rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+    </div>
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
@@ -4878,6 +4889,33 @@ if ('serviceWorker' in navigator) {
       }
     }
     statusEl.textContent = 'Synced ' + ok + ' trades' + (fail ? (', ' + fail + ' failed (see browser console)') : '') + '.';
+  }
+
+  // === Sprint 18: clear all trades on the AI backend ======================
+  // Bulk-delete gated behind an exact confirmation phrase, matching the
+  // backend's own safety check (?confirm=DELETE ALL MY TRADES) -- this is
+  // deliberately not a plain confirm() dialog so it can never happen from a
+  // stray click. Only clears the AI backend's copy (used for coaching/ML
+  // training); the local Trade Journal tab is a separate store and is
+  // untouched.
+  const CLEAR_TRADES_CONFIRM_PHRASE = 'DELETE ALL MY TRADES';
+
+  async function aiClearAllTrades() {
+    const statusEl = document.getElementById('ai-clear-trades-status');
+    const input = document.getElementById('ai-clear-trades-confirm');
+    const typed = (input && input.value || '').trim();
+    if (typed !== CLEAR_TRADES_CONFIRM_PHRASE) {
+      statusEl.textContent = 'Type exactly "' + CLEAR_TRADES_CONFIRM_PHRASE + '" in the box first -- this is permanent and cannot be undone.';
+      return;
+    }
+    statusEl.textContent = 'Deleting all trades...';
+    try {
+      const data = await apiFetch('/api/v1/trades?confirm=' + encodeURIComponent(typed), { method: 'DELETE' });
+      statusEl.textContent = 'Done -- deleted ' + data.deletedCount + ' trade(s) from the AI backend. Starting fresh.';
+      if (input) input.value = '';
+    } catch (e) {
+      statusEl.textContent = 'Failed to clear trades: ' + e.message;
+    }
   }
 
   // === Sprint 17: import auto-journaled MT5 trades =======================
@@ -5894,6 +5932,7 @@ if ('serviceWorker' in navigator) {
     if (typeof showToast === 'function') showToast('Backend URL saved.', 'success');
   };
   window.aiSyncTrades = syncTradesToBackend;
+  window.aiClearAllTrades = aiClearAllTrades;
   window.aiImportMt5Trades = importMt5Trades;
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiRunPretrade = runPretradeCheck;
