@@ -5681,6 +5681,16 @@ if ('serviceWorker' in navigator) {
         '<div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;max-width:320px;">' +
         '<div style="background:' + barColor + ';height:100%;width:' + pct + '%;"></div></div>' +
         (r.invalidTrades ? '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.35rem;">' + r.invalidTrades + ' trade(s) skipped for missing fields.</div>' : '') +
+        // Sprint 18 -- surfaces exactly which field(s) are missing and how
+        // many trades each one affects, instead of just a bare count. This
+        // is the same data the backend already computes (missingFields),
+        // it just wasn't shown anywhere before -- makes it possible to
+        // diagnose "why are my trades being skipped" from the screen alone.
+        ((r.missingFields && Object.keys(r.missingFields).length)
+          ? '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem;">Missing field breakdown: ' +
+            Object.entries(r.missingFields).map(function (kv) { return escapeHtml(kv[0]) + ' (' + kv[1] + ')'; }).join(', ') +
+            '</div>'
+          : '') +
         '<div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.25rem;">Win rate so far: ' + r.classDistribution.winRate + '%</div>';
     } catch (e) {
       el.textContent = '';
