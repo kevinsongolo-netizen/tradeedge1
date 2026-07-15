@@ -2567,11 +2567,24 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
 // RULES
 // ============================
 
+// Fixed display order for the Rules page columns -- entry decisions
+// come first when you're actually trading, so Entry Rules always
+// renders leftmost, regardless of whatever order a user's saved/
+// synced state.rules object happens to have its keys in (plain
+// object key order isn't something to rely on for display order).
+// Any category not listed here (e.g. a future custom one) still
+// renders, just after these.
+const RULE_CATEGORY_ORDER = ['entry', 'exit', 'risk', 'session'];
+
 function renderRules() {
   const grid = document.getElementById('rules-grid');
   grid.innerHTML = '';
 
-  Object.entries(state.rules).forEach(([catKey, cat]) => {
+  const allKeys = Object.keys(state.rules);
+  const orderedKeys = RULE_CATEGORY_ORDER.filter(k => allKeys.includes(k))
+    .concat(allKeys.filter(k => !RULE_CATEGORY_ORDER.includes(k)));
+
+  orderedKeys.map(k => [k, state.rules[k]]).forEach(([catKey, cat]) => {
     const col = document.createElement('div');
     col.className = 'rule-category';
     col.innerHTML = `
@@ -3057,7 +3070,7 @@ function renderJournal() {
   else if (f === 'forex' || f === 'crypto' || f === 'indices') entries = entries.filter(e => e.asset === f);
 
   // Sort by date descending
-  entries.sort((a, b) => b.date.localeCompare(a.date));
+  entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   if (entries.length === 0) {
     tbody.innerHTML = '';
@@ -3078,8 +3091,8 @@ function renderJournal() {
     return `<tr>
       <td style="font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text-secondary)">${formatDate(e.date)}</td>
       <td style="font-weight:600">${e.pair}</td>
-      <td><span class="badge badge-${e.direction}">${e.direction.toUpperCase()}</span></td>
-      <td><span class="badge badge-asset ${assetClass}">${e.asset.toUpperCase()}</span></td>
+      <td><span class="badge badge-${e.direction || ''}">${(e.direction || '—').toUpperCase()}</span></td>
+      <td><span class="badge badge-asset ${assetClass}">${(e.asset || '—').toUpperCase()}</span></td>
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem;text-align:center">${lots}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem">${e.entry || '—'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.85rem">${e.exit || '—'}</td>
@@ -3363,7 +3376,7 @@ function renderReview() {
 function renderEquityCurve(entries) {
   const container = document.getElementById('equity-curve-container');
   if (!container) return;
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date) || 0);
+  const sorted = [...entries].sort((a, b) => (a.date || '').localeCompare(b.date || '') || 0);
   let running = 0;
   const points = sorted.map(e => { running += e.pnl; return running; });
 
@@ -3871,7 +3884,7 @@ function applyDateFilter(trades) {
   
   if (filterType === 'last') {
     // Sort by date descending and return only the last one
-    trades.sort((a, b) => b.date.localeCompare(a.date));
+    trades.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     return trades.length > 0 ? [trades[0]] : [];
   }
   
@@ -4290,8 +4303,8 @@ function showImportPreview(trades) {
       <td style="text-align:center"><input type="checkbox" ${checked} onchange="toggleTradeSelection(${idx})"></td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem">${formatDate(t.date)}</td>
       <td style="font-weight:600;font-size:0.85rem">${t.pair}${dupBadge}</td>
-      <td><span class="badge badge-${t.direction}" style="font-size:0.7rem">${t.direction.toUpperCase()}</span></td>
-      <td><span class="badge badge-asset ${t.asset}" style="font-size:0.7rem">${t.asset.toUpperCase()}</span></td>
+      <td><span class="badge badge-${t.direction || ''}" style="font-size:0.7rem">${(t.direction || '—').toUpperCase()}</span></td>
+      <td><span class="badge badge-asset ${t.asset || ''}" style="font-size:0.7rem">${(t.asset || '—').toUpperCase()}</span></td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem;text-align:center">${lots}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem">${t.entry}</td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem;color:var(--red)">${sl}</td>
@@ -4488,30 +4501,22 @@ if ('serviceWorker' in navigator) {
     <div id="ai-coach-output" style="margin-top:1rem;"></div>
   </div>
 
-  <div class="card">
-    <h3 style="margin-bottom:1rem;">Pre-Trade Check</h3>
+  <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official H4→M15 Point-of-Interest strategy on real candles — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" list="ai-ca-pair-list" autocomplete="off"></div>
-      <div class="form-group"><label class="form-label">Direction</label>
-        <select class="form-select" id="ai-pt-direction"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      <div class="form-group"><label class="form-label">Session (optional)</label>
+        <select class="form-select" id="ai-pt-session"><option value="">— Select —</option><option value="Asian">Asian</option><option value="London">London</option><option value="Overlap">Overlap</option><option value="New York">New York</option></select>
       </div>
-      <div class="form-group"><label class="form-label">Planned R:R</label><input type="number" step="any" class="form-input" id="ai-pt-rr" placeholder="2.0"></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">H4 Trend</label>
-        <select class="form-select" id="ai-pt-h4trend"><option value="">— Select —</option><option value="Bullish">Bullish</option><option value="Bearish">Bearish</option><option value="Ranging">Ranging</option></select>
-      </div>
-      <div class="form-group"><label class="form-label">Confidence %</label><input type="number" min="0" max="100" step="any" class="form-input" id="ai-pt-confidence" placeholder="80"></div>
+    <div class="form-group">
+      <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-pt-h4-candles" rows="6" placeholder="Paste 10+ H4 candles here, oldest first."></textarea>
     </div>
-    <div class="form-row">
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;margin-top:1.6rem;">
-        <input type="checkbox" id="ai-pt-bos" style="width:auto;">
-        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Break of structure (BOS) confirmed</label>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;margin-top:1.6rem;">
-        <input type="checkbox" id="ai-pt-sweep" style="width:auto;">
-        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Liquidity sweep occurred</label>
-      </div>
+    <div class="form-group">
+      <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
     </div>
     <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
@@ -4566,8 +4571,8 @@ if ('serviceWorker' in navigator) {
         <textarea class="form-input" id="ai-ca-candles" rows="6" placeholder="2024-01-01T00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T01:00,1.0960,1.0975,1.0955,1.0970"></textarea>
       </div>
       <div class="form-group">
-        <label class="form-label">M15 candle data (optional — enables automatic multi-timeframe confirmation)</label>
-        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Optional: paste M15 candles in the same format to auto-check BOS/CHOCH/entry confirmation instead of the checkboxes below."></textarea>
+        <label class="form-label">M15 candle data (required for your H4→M15 OB strategy to find the entry trigger)</label>
+        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Paste M15 candles in the same format -- your active strategy checks these for a matching order-block touch to trigger entry. Without M15 data it can only confirm the H4 order block was touched, not enter."></textarea>
       </div>
     </div>
 
@@ -4605,28 +4610,6 @@ if ('serviceWorker' in navigator) {
       <div id="ai-live-status" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Requires the MT5 EA to be running and pushing data — see the setup guide.</div>
     </div>
 
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Direction</label>
-        <select class="form-select" id="ai-ca-direction"><option value="">Auto (use chart bias)</option><option value="buy">Buy</option><option value="sell">Sell</option></select>
-      </div>
-      <div class="form-group"><label class="form-label">Planned R:R</label><input type="number" step="any" class="form-input" id="ai-ca-rr" placeholder="2.0"></div>
-      <div class="form-group"><label class="form-label">Min R:R required</label><input type="number" step="any" class="form-input" id="ai-ca-minrr" placeholder="2.0"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-ca-m15bos" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 BOS confirmed</label>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-ca-m15choch" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 CHOCH confirmed</label>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-ca-m15entry" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">M15 entry confirmation</label>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-ca-sweep" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Liquidity sweep occurred</label>
-      </div>
-    </div>
-
     <button class="btn btn-primary" onclick="aiRunChartAnalysis()">Analyze chart</button>
     <div id="ai-ca-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
 
@@ -4639,16 +4622,12 @@ if ('serviceWorker' in navigator) {
         <h4 style="margin-bottom:0.75rem;">Trade Validation</h4>
         <div id="ai-ca-validation-output"></div>
       </div>
-      <div class="card" style="margin-bottom:1rem;" id="ai-ca-mtf-card">
-        <h4 style="margin-bottom:0.75rem;">Multi-Timeframe Confirmation</h4>
-        <div id="ai-ca-mtf-output"></div>
-      </div>
       <div class="card" style="margin-bottom:1rem;">
         <h4 style="margin-bottom:0.75rem;">AI Coach</h4>
         <div id="ai-ca-coach-output"></div>
       </div>
       <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">Confidence Meter</h4>
+        <h4 style="margin-bottom:0.75rem;">Setup Confidence</h4>
         <div id="ai-ca-confidence-output"></div>
       </div>
       <button class="btn btn-primary" onclick="aiSaveChartAnalysisToJournal()">Save this trade to journal</button>
@@ -4656,64 +4635,38 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Position Size Calculator</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Risk-based lot sizing — works for forex, indices, metals, or crypto. Run a Chart Analysis above first and click "Use these levels" to auto-fill entry/SL/TP.</p>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Account Balance</label><input type="number" step="any" class="form-input" id="ai-ps-balance" placeholder="1000"></div>
-      <div class="form-group"><label class="form-label">Risk %</label><input type="number" step="any" class="form-input" id="ai-ps-risk-percent" placeholder="1.0"></div>
-      <div class="form-group"><label class="form-label">Or Risk $ (overrides %)</label><input type="number" step="any" class="form-input" id="ai-ps-risk-amount" placeholder="optional"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Entry</label><input type="number" step="any" class="form-input" id="ai-ps-entry" placeholder="0.00"></div>
-      <div class="form-group"><label class="form-label">Stop Loss</label><input type="number" step="any" class="form-input" id="ai-ps-sl" placeholder="0.00"></div>
-      <div class="form-group"><label class="form-label">Take Profit (optional)</label><input type="number" step="any" class="form-input" id="ai-ps-tp" placeholder="0.00"></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Value per point per lot</label><input type="number" step="any" class="form-input" id="ai-ps-vpp" placeholder="e.g. 10"></div>
-      <div class="form-group"><label class="form-label">Lot step</label><input type="number" step="any" class="form-input" id="ai-ps-lotstep" placeholder="0.01" value="0.01"></div>
-    </div>
-    <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:1rem;">"Value per point per lot" = how much a 1.00 lot position moves in your account currency per 1.0 unit of price change. Check your broker's symbol specification (MT5: right-click a symbol in Market Watch → Specification → "Tick value").</div>
-    <button class="btn btn-primary" onclick="aiRunPositionSize()">Calculate position size</button>
-    <div id="ai-ps-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-    <div id="ai-ps-output" style="margin-top:1rem;"></div>
-  </div>
+    <h3 style="margin-bottom:0.25rem;">Session &amp; News <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Auto-refreshes every 60 seconds — current trading session and any high-impact news due soon, no button needed.</p>
+    <div id="ai-session-output" style="margin-bottom:1rem;"></div>
 
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Session &amp; News Check</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Trading session auto-detection and a high-impact news filter for your planned trade time.</p>
-    <button class="btn" onclick="aiRunSessionDetect()">Detect current session</button>
-    <div id="ai-session-output" style="margin-top:0.75rem;"></div>
-
-    <div style="border-top:1px solid var(--border);margin:1.25rem 0;padding-top:1rem;">
+    <div style="border-top:1px solid var(--border);padding-top:1rem;">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Planned Trade Time (your local time)</label><input type="datetime-local" class="form-input" id="ai-news-time"></div>
-        <div class="form-group"><label class="form-label">Buffer (minutes)</label><input type="number" step="any" class="form-input" id="ai-news-buffer" placeholder="60" value="60"></div>
-      </div>
-      <div class="form-row">
+        <div class="form-group"><label class="form-label">Look ahead (minutes)</label><input type="number" step="any" class="form-input" id="ai-news-buffer" placeholder="60" value="60"></div>
         <div class="form-group"><label class="form-label">Currencies (optional, comma-separated)</label><input type="text" class="form-input" id="ai-news-currencies" placeholder="USD, EUR"></div>
         <div class="form-group"><label class="form-label">Minimum impact</label>
           <select class="form-select" id="ai-news-min-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
         </div>
       </div>
-      <button class="btn btn-primary" onclick="aiRunNewsCheck()">Check for news</button>
-      <div id="ai-news-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-      <div id="ai-news-output" style="margin-top:0.75rem;"></div>
+      <div id="ai-news-error" style="margin-top:0.5rem;color:var(--red);font-size:0.85rem;"></div>
+      <div id="ai-news-output" style="margin-top:0.5rem;"></div>
     </div>
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Backtest</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your SMC rules against historical candle data to see how they would have performed. Paste a longer series (50+ candles) for a meaningful sample — no AI, just your existing rules run automatically over the past.</p>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your H4→M15 Order Block / Fair Value Gap strategy against real historical candles — H4 and M15 walked together in sync, exactly like live trading. No forced R:R.</p>
+    <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:0.75rem;">Both candle series need REAL date/times (e.g. <code>2024-01-01T00:00:00</code>), not just labels — the two timeframes are aligned by actual time to avoid any lookahead.</div>
     <div class="form-group">
-      <label class="form-label">Candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-bt-candles" rows="8" placeholder="Paste 50+ candles here, oldest first."></textarea>
+      <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-bt-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T04:00:00,1.0960,1.0975,1.0955,1.0970"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-bt-m15-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0958,1.0945,1.0955&#10;2024-01-01T00:15:00,1.0955,1.0962,1.0950,1.0960"></textarea>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Lookback window</label><input type="number" step="1" class="form-input" id="ai-bt-lookback" placeholder="100" value="100"></div>
-      <div class="form-group"><label class="form-label">Min R:R required</label><input type="number" step="any" class="form-input" id="ai-bt-minrr" placeholder="2.0" value="2.0"></div>
-      <div class="form-group"><label class="form-label">Direction</label>
-        <select class="form-select" id="ai-bt-direction"><option value="">Auto (use chart bias)</option><option value="buy">Buy only</option><option value="sell">Sell only</option></select>
-      </div>
+      <div class="form-group"><label class="form-label">Lookback window (H4)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback" placeholder="100" value="100"></div>
+      <div class="form-group"><label class="form-label">Lookback window (M15)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback-m15" placeholder="100" value="100"></div>
     </div>
     <button class="btn btn-primary" onclick="aiRunBacktest()">Run backtest</button>
     <div id="ai-bt-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
@@ -4955,34 +4908,53 @@ if ('serviceWorker' in navigator) {
   async function runPretradeCheck() {
     const el = document.getElementById('ai-pretrade-output');
     const pair = document.getElementById('ai-pt-pair').value.trim();
-    const direction = document.getElementById('ai-pt-direction').value;
-    const rr = parseFloat(document.getElementById('ai-pt-rr').value);
-    const h4Trend = document.getElementById('ai-pt-h4trend').value;
-    const confidence = parseFloat(document.getElementById('ai-pt-confidence').value);
-    const hasBos = document.getElementById('ai-pt-bos').checked;
-    const hasLiquiditySweep = document.getElementById('ai-pt-sweep').checked;
+    const session = document.getElementById('ai-pt-session').value;
+    const h4Raw = document.getElementById('ai-pt-h4-candles').value;
+    const m15Raw = document.getElementById('ai-pt-m15-candles').value;
     if (!pair) { el.textContent = 'Enter a pair first.'; return; }
+    if (!h4Raw.trim()) { el.textContent = 'Paste H4 candle data first.'; return; }
+    if (!m15Raw.trim()) { el.textContent = 'Paste M15 candle data too.'; return; }
+
+    let h4Candles, m15Candles;
+    try {
+      h4Candles = parseCandlesTextarea(h4Raw);
+      m15Candles = parseCandlesTextarea(m15Raw);
+    } catch (e) {
+      el.textContent = e.message;
+      return;
+    }
+
     el.textContent = 'Checking...';
     try {
       const body = {
         pair: pair,
-        direction: direction,
-        plannedRR: isNaN(rr) ? null : rr,
-        h4Trend: h4Trend || null,
-        confidence: isNaN(confidence) ? null : confidence,
-        hasBos: hasBos,
-        hasLiquiditySweep: hasLiquiditySweep,
+        session: session || null,
+        h4Candles: h4Candles,
+        m15Candles: m15Candles,
       };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
-      const mlLine = data.mlAvailable
-        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
-        : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
-      el.innerHTML =
-        '<div class="review-item"><strong>Recommendation: ' + escapeHtml(data.recommendation) + '</strong><br>' +
-        'Quality score: ' + (data.tradeQualityScore ?? '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · Confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
-        mlLine +
-        (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
-        (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '');
+      const statusColor = data.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
+      const finalResult = data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT';
+      let html =
+        '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(data.tradeStatus) + '</strong> — ' + escapeHtml(data.recommendation) + (data.direction ? ' (' + escapeHtml(data.direction) + ')' : '') + '</div>' +
+        renderRuleChecklist(data.ruleChecks, finalResult) +
+        ((data.suggestedEntry != null || data.stopLoss != null || data.takeProfit != null)
+          ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (data.suggestedEntry ?? '—') + ' · SL ' + (data.stopLoss ?? '—') + ' · TP ' + (data.takeProfit ?? '—') + (data.riskReward != null ? ' · R:R ' + data.riskReward.toFixed(2) : '') + '</div>'
+          : '');
+
+      if (data.tradeStatus === 'VALID') {
+        const mlLine = data.mlAvailable
+          ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
+          : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
+        html +=
+          '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;"><em style="font-size:0.76rem;color:var(--text-muted);">Extra context below — informational only, never overrides the decision above:</em></div>' +
+          '<div class="review-item">ML recommendation: ' + escapeHtml(data.mlRecommendation || '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · AI confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
+          mlLine +
+          (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
+          (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
+          (data.historicalReasons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.historicalReasons.map(escapeHtml).join('<br>') + '</div>' : '');
+      }
+      el.innerHTML = html;
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
     }
@@ -5014,6 +4986,48 @@ if ('serviceWorker' in navigator) {
       '</div></div>';
   }
 
+  // Shared checklist renderer for the ONE official H4->M15 POI
+  // strategy's ruleChecks array (H4 Order Block/FVG / M15 Order
+  // Block/FVG / POI Alignment / Entry / SL / TP) -- used by Chart
+  // Analysis Engine and Pre-Trade Check so a WAIT always shows exactly
+  // which step is still pending, instead of a single pass/fail flag.
+  // Status wording is tailored per step: POI-touch steps say WAITING
+  // (price just hasn't gotten there yet, nothing is "broken"),
+  // alignment says NOT ALIGNED, and the entry/target step says NO
+  // TARGET FOUND -- NOT_CHECKED steps say NOT CHECKED, except the
+  // final entry/target step which says NOT CALCULATED.
+  function _ruleStatusLabel(rule, status) {
+    if (status === 'PASSED') return { icon: '✅', word: 'PASS', color: 'var(--green)' };
+    if (status === 'NOT_CHECKED') {
+      return rule === 'Entry / SL / TP'
+        ? { icon: '⏸', word: 'NOT CALCULATED', color: 'var(--text-muted)' }
+        : { icon: '⏸', word: 'NOT CHECKED', color: 'var(--text-muted)' };
+    }
+    // FAILED
+    if (rule === 'POI Alignment') return { icon: '❌', word: 'NOT ALIGNED', color: 'var(--red)' };
+    if (rule === 'Entry / SL / TP') return { icon: '❌', word: 'NO TARGET FOUND', color: 'var(--red)' };
+    return { icon: '❌', word: 'WAITING', color: 'var(--red)' };
+  }
+
+  function renderRuleChecklist(ruleChecks, finalResult) {
+    if (!ruleChecks || !ruleChecks.length) return '';
+    const rows = ruleChecks.map(function (c, i) {
+      const label = _ruleStatusLabel(c.rule, c.status);
+      return '<div style="font-size:0.82rem;padding:0.3rem 0;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">STEP ' + (i + 1) + '</div>' +
+        '<strong>' + escapeHtml(c.rule) + '</strong><br>' +
+        '<strong style="color:' + label.color + ';">' + label.icon + ' ' + label.word + '</strong>' +
+        (c.detail ? '<br><span style="color:var(--text-secondary);">' + escapeHtml(c.detail) + '</span>' : '') +
+        '</div>';
+    }).join('');
+    const finalHtml = finalResult
+      ? '<div style="font-size:0.82rem;padding:0.4rem 0;border-top:1px solid var(--border);margin-top:0.3rem;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">FINAL RESULT</div>' +
+        '<strong style="font-size:0.95rem;">' + escapeHtml(finalResult) + '</strong></div>'
+      : '';
+    return '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;">' + rows + finalHtml + '</div>';
+  }
+
   function renderChartAnalysis(a) {
     const el = document.getElementById('ai-ca-analysis-output');
     const placeholderBanner = a.isPlaceholder
@@ -5037,12 +5051,12 @@ if ('serviceWorker' in navigator) {
   function renderTradeValidation(v) {
     const el = document.getElementById('ai-ca-validation-output');
     const statusColor = v.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
+    const finalResult = v.recommendation === 'TAKE' ? ('TAKE — ' + (v.direction || '').toUpperCase()) : 'WAIT';
     el.innerHTML =
       '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(v.tradeStatus) + '</strong> — ' + escapeHtml(v.recommendation) + (v.direction ? ' (' + escapeHtml(v.direction) + ')' : '') + '</div>' +
-      (v.reasonsPassed.length ? '<div class="review-item" style="color:var(--green)">✓ ' + v.reasonsPassed.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
-      (v.reasonsFailed.length ? '<div class="review-item" style="color:var(--red)">✗ ' + v.reasonsFailed.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
+      renderRuleChecklist(v.ruleChecks, finalResult) +
       ((v.suggestedEntry != null || v.stopLoss != null || v.takeProfit != null)
-        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '<br><button class="btn" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="aiUseValidationLevelsInCalculator()">Use these levels in Position Size Calculator</button></div>'
+        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '</div>'
         : '');
   }
 
@@ -5053,18 +5067,12 @@ if ('serviceWorker' in navigator) {
       ((c.explanation && c.explanation.length) ? c.explanation.map(function (line) { return '<div class="review-item">' + escapeHtml(line) + '</div>'; }).join('') : '');
   }
 
-  function renderConfidenceMeter(breakdown) {
+  function renderConfidenceMeter(confidence) {
+    // Simplified to match the active H4->M15 OB strategy: just its own
+    // pass-rate confidence (0/33/67/100 -- how many of its own steps
+    // were confirmed), not the old 7-category Classic Bias breakdown.
     const el = document.getElementById('ai-ca-confidence-output');
-    el.innerHTML =
-      confidenceBar('Overall confidence', breakdown.overall) +
-      '<div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.4rem;">Breakdown</div>' +
-      confidenceBar('H4 trend alignment', breakdown.trendAlignment) +
-      confidenceBar('POI quality', breakdown.poiQuality) +
-      confidenceBar('Liquidity quality', breakdown.liquidityQuality) +
-      confidenceBar('BOS quality', breakdown.bosQuality) +
-      confidenceBar('CHOCH quality', breakdown.chochQuality) +
-      confidenceBar('FVG quality', breakdown.fvgQuality) +
-      confidenceBar('R:R quality', breakdown.rrQuality);
+    el.innerHTML = confidenceBar('Setup confidence', confidence == null ? 0 : confidence);
   }
 
   function parseCandlesTextarea(raw) {
@@ -5094,13 +5102,18 @@ if ('serviceWorker' in navigator) {
       return;
     }
 
-    const direction = document.getElementById('ai-ca-direction').value || null;
-    const rr = parseFloat(document.getElementById('ai-ca-rr').value);
-    const minRr = parseFloat(document.getElementById('ai-ca-minrr').value);
-    const hasM15Bos = document.getElementById('ai-ca-m15bos').checked;
-    const hasM15Choch = document.getElementById('ai-ca-m15choch').checked;
-    const hasM15Entry = document.getElementById('ai-ca-m15entry').checked;
-    const hasSweep = document.getElementById('ai-ca-sweep').checked;
+    // Classic Bias inputs (direction override, planned/min R:R, M15 BOS/
+    // CHOCH/entry checkboxes, liquidity sweep) were removed from the UI
+    // entirely per your request -- your only rule is H4->M15 OB touch,
+    // which needs none of these. Sent as harmless defaults below so the
+    // (unrelated) screenshot-analysis request shape doesn't change.
+    const direction = null;
+    const rr = NaN;
+    const minRr = NaN;
+    const hasM15Bos = false;
+    const hasM15Choch = false;
+    const hasM15Entry = false;
+    const hasSweep = false;
 
     try {
       let data;
@@ -5142,8 +5155,7 @@ if ('serviceWorker' in navigator) {
       renderChartAnalysis(data.analysis);
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
-      renderConfidenceMeter(data.coach.confidence);
-      renderMultiTimeframe(data.multiTimeframe);
+      renderConfidenceMeter(data.validation.confidence);
       resultsEl.style.display = 'block';
     } catch (e) {
       errorEl.textContent = 'Error: ' + e.message;
@@ -5196,58 +5208,6 @@ if ('serviceWorker' in navigator) {
     setVal('j-notes', noteLines.join(' '));
 
     if (typeof showToast === 'function') showToast('Trade pre-filled from Chart Analysis — review and Save.', 'success');
-  }
-
-  function useValidationLevelsInCalculator() {
-    if (!lastChartAnalysisResult) return;
-    const { validation } = lastChartAnalysisResult;
-    const setVal = function (id, value) {
-      const el = document.getElementById(id);
-      if (el && value !== null && value !== undefined) el.value = value;
-    };
-    setVal('ai-ps-entry', validation.suggestedEntry);
-    setVal('ai-ps-sl', validation.stopLoss);
-    setVal('ai-ps-tp', validation.takeProfit);
-    const calcCard = document.getElementById('ai-ps-balance');
-    if (calcCard) calcCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  async function runPositionSize() {
-    const errorEl = document.getElementById('ai-ps-error');
-    const outputEl = document.getElementById('ai-ps-output');
-    errorEl.textContent = '';
-    outputEl.innerHTML = '';
-
-    const balance = parseFloat(document.getElementById('ai-ps-balance').value);
-    const riskPercent = parseFloat(document.getElementById('ai-ps-risk-percent').value);
-    const riskAmount = parseFloat(document.getElementById('ai-ps-risk-amount').value);
-    const entry = parseFloat(document.getElementById('ai-ps-entry').value);
-    const sl = parseFloat(document.getElementById('ai-ps-sl').value);
-    const tp = parseFloat(document.getElementById('ai-ps-tp').value);
-    const vpp = parseFloat(document.getElementById('ai-ps-vpp').value);
-    const lotStep = parseFloat(document.getElementById('ai-ps-lotstep').value);
-
-    const body = {
-      accountBalance: isNaN(balance) ? null : balance,
-      riskPercent: isNaN(riskPercent) ? null : riskPercent,
-      riskAmount: isNaN(riskAmount) ? null : riskAmount,
-      entry: isNaN(entry) ? null : entry,
-      stopLoss: isNaN(sl) ? null : sl,
-      takeProfit: isNaN(tp) ? null : tp,
-      valuePerPointPerLot: isNaN(vpp) ? null : vpp,
-      lotStep: isNaN(lotStep) ? 0.01 : lotStep,
-    };
-
-    try {
-      const data = await apiFetch('/api/v1/tools/position-size', { method: 'POST', body: JSON.stringify(body) });
-      outputEl.innerHTML =
-        '<div class="review-item"><strong>Recommended size:</strong> ' + data.recommendedLots + ' lots</div>' +
-        '<div class="review-item">Risking ' + '$' + data.actualRiskAmount.toFixed(2) + ' (target was $' + data.riskAmount.toFixed(2) + ')</div>' +
-        (data.potentialProfit != null ? '<div class="review-item">Potential profit at TP: $' + data.potentialProfit.toFixed(2) + (data.riskReward != null ? ' (R:R ' + data.riskReward.toFixed(2) + ')' : '') + '</div>' : '') +
-        (data.warnings.length ? '<div class="review-item" style="color:var(--red)">⚠ ' + data.warnings.map(escapeHtml).join('<br>⚠ ') + '</div>' : '');
-    } catch (e) {
-      errorEl.textContent = 'Error: ' + e.message;
-    }
   }
 
   async function runTradeReview() {
@@ -5314,21 +5274,19 @@ if ('serviceWorker' in navigator) {
     const errorEl = document.getElementById('ai-news-error');
     const el = document.getElementById('ai-news-output');
     errorEl.textContent = '';
-    el.innerHTML = '';
-    const timeVal = document.getElementById('ai-news-time').value;
-    if (!timeVal) { errorEl.textContent = 'Choose a planned trade time first.'; return; }
+    // LIVE: always checks from right now, no manual "planned trade time"
+    // input needed anymore.
     const buffer = parseInt(document.getElementById('ai-news-buffer').value, 10);
     const currenciesRaw = document.getElementById('ai-news-currencies').value.trim();
     const currencies = currenciesRaw ? currenciesRaw.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean) : null;
     const minImpact = document.getElementById('ai-news-min-impact').value;
 
     const body = {
-      plannedTime: new Date(timeVal).toISOString(),
+      plannedTime: new Date().toISOString(),
       bufferMinutes: isNaN(buffer) ? 60 : buffer,
       currencies: currencies,
       minImpact: minImpact,
     };
-    el.textContent = 'Checking...';
     try {
       const data = await apiFetch('/api/v1/news/check-calendar', { method: 'POST', body: JSON.stringify(body) });
       const statusColor = data.hasHighImpactNearby ? 'var(--red)' : 'var(--green)';
@@ -5346,6 +5304,22 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // LIVE Session & News: runs both on load and every 60s automatically,
+  // no button needed -- matches how the Scanner/MT5-import cards work.
+  let sessionNewsLiveTimer = null;
+  function refreshSessionAndNews() {
+    runSessionDetect();
+    runNewsCheck();
+  }
+  function startSessionNewsLive() {
+    stopSessionNewsLive();
+    refreshSessionAndNews();
+    sessionNewsLiveTimer = setInterval(refreshSessionAndNews, 60000);
+  }
+  function stopSessionNewsLive() {
+    if (sessionNewsLiveTimer) { clearInterval(sessionNewsLiveTimer); sessionNewsLiveTimer = null; }
+  }
+
   async function runBacktest() {
     const errorEl = document.getElementById('ai-bt-error');
     const outputEl = document.getElementById('ai-bt-output');
@@ -5353,25 +5327,27 @@ if ('serviceWorker' in navigator) {
     outputEl.innerHTML = '';
 
     const raw = document.getElementById('ai-bt-candles').value;
-    if (!raw.trim()) { errorEl.textContent = 'Paste candle data first (50+ candles for a meaningful sample).'; return; }
+    const rawM15 = document.getElementById('ai-bt-m15-candles').value;
+    if (!raw.trim()) { errorEl.textContent = 'Paste H4 candle data first (50+ bars for a meaningful sample).'; return; }
+    if (!rawM15.trim()) { errorEl.textContent = 'Paste M15 candle data too — this strategy needs both timeframes to replay your rules.'; return; }
 
-    let candles;
+    let candles, m15Candles;
     try {
       candles = parseCandlesTextarea(raw);
+      m15Candles = parseCandlesTextarea(rawM15);
     } catch (e) {
       errorEl.textContent = e.message;
       return;
     }
 
     const lookback = parseInt(document.getElementById('ai-bt-lookback').value, 10);
-    const minRr = parseFloat(document.getElementById('ai-bt-minrr').value);
-    const direction = document.getElementById('ai-bt-direction').value || null;
+    const lookbackM15 = parseInt(document.getElementById('ai-bt-lookback-m15').value, 10);
 
     const body = {
       candles: candles,
+      m15Candles: m15Candles,
       lookbackWindow: isNaN(lookback) ? 100 : lookback,
-      minRr: isNaN(minRr) ? 2.0 : minRr,
-      direction: direction,
+      lookbackWindowM15: isNaN(lookbackM15) ? 100 : lookbackM15,
     };
 
     outputEl.textContent = 'Running backtest...';
@@ -5432,8 +5408,7 @@ if ('serviceWorker' in navigator) {
       renderChartAnalysis(data.analysis);
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
-      renderConfidenceMeter(data.coach.confidence);
-      renderMultiTimeframe(data.multiTimeframe);
+      renderConfidenceMeter(data.validation.confidence);
       resultsEl.style.display = 'block';
       statusEl.textContent = 'Last updated: ' + new Date(data.updatedAt).toLocaleString();
     } catch (e) {
@@ -5542,6 +5517,7 @@ if ('serviceWorker' in navigator) {
   // endpoint needed) and surfaces which ones currently have a VALID setup.
   const SCAN_LIST_KEY = 'te_ai_scan_list';
   const SCAN_NOTIFY_KEY = 'te_ai_scan_notify';
+  const SCAN_AUTOREFRESH_KEY = 'te_ai_scan_autorefresh';
   let scanAutoRefreshTimer = null;
   let scanLastStatus = {}; // "SYMBOL|TIMEFRAME" -> last known tradeStatus, to detect new VALIDs
 
@@ -5605,6 +5581,16 @@ if ('serviceWorker' in navigator) {
       : null;
   }
 
+  // Rough price formatter for the Scanner card -- no per-symbol digit
+  // metadata on the frontend, so this just guesses decimals from
+  // magnitude (indices/crypto ~2, forex ~5), same convention the rest
+  // of the site already uses for display-only price rounding.
+  function fmtLevel(v) {
+    if (v === null || v === undefined || isNaN(v)) return '';
+    const decimals = Math.abs(v) >= 100 ? 2 : 5;
+    return Number(v).toFixed(decimals);
+  }
+
   window.aiScannerScanNow = async function () {
     const list = getScanList();
     const statusEl = document.getElementById('ai-scan-status');
@@ -5618,10 +5604,27 @@ if ('serviceWorker' in navigator) {
     if (!base) { statusEl.textContent = 'Set your backend URL above first.'; return; }
 
     statusEl.textContent = 'Scanning ' + list.length + ' asset(s)...';
+    // Render's free tier puts the backend to sleep after inactivity --
+    // the first request after a while wakes it up (can take 20-40s),
+    // and every OTHER symbol's request fired in the same batch can
+    // time out/fail while that's happening. One retry after a short
+    // delay covers that case instead of showing "couldn't fetch" for
+    // half the list on the first scan after idle time.
+    async function fetchLiveWithRetry(url, attempt) {
+      try {
+        return await fetch(url);
+      } catch (e) {
+        if (attempt >= 1) throw e;
+        await new Promise(function (r) { setTimeout(r, 4000); });
+        return fetchLiveWithRetry(url, attempt + 1);
+      }
+    }
+
     const rows = await Promise.all(list.map(async function (item) {
       const key = item.symbol.toUpperCase() + '|' + item.timeframe.toUpperCase();
       try {
-        const res = await fetch(base + '/api/v1/live/latest?symbol=' + encodeURIComponent(item.symbol) + '&timeframe=' + encodeURIComponent(item.timeframe));
+        const url = base + '/api/v1/live/latest?symbol=' + encodeURIComponent(item.symbol) + '&timeframe=' + encodeURIComponent(item.timeframe);
+        const res = await fetchLiveWithRetry(url, 0);
         if (res.status === 404) {
           return { item: item, key: key, state: 'no-data' };
         }
@@ -5659,15 +5662,30 @@ if ('serviceWorker' in navigator) {
         return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; no live data yet (check the EA is attached and running).</div>';
       }
       if (r.state === 'error') {
-        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; couldn\'t fetch right now.</div>';
+        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; couldn\'t fetch right now (if your backend has been idle a while, it may just be waking up -- try Scan now again in ~30s).</div>';
       }
       const isValid = r.tradeStatus === 'VALID';
-      const conf = scanConfidence(r.data);
       const direction = r.data.validation && r.data.validation.direction ? r.data.validation.direction : '';
-      const trend = r.data.analysis && r.data.analysis.trend ? r.data.analysis.trend : '';
+      const v = r.data.validation || {};
+      // Show the STRATEGY'S OWN reasoning (which H4/M15 order block got
+      // touched, or what it's still waiting for) instead of a generic
+      // trend/confidence line -- that line never changed meaningfully
+      // between strategies since it came from an unrelated summary score.
+      const reasons = isValid ? (v.reasonsPassed || []) : (v.reasonsFailed || []);
+      const reasonLine = reasons.length ? reasons.map(escapeHtml).join('<br>') : '';
+      let detailLine = '';
+      if (isValid) {
+        const parts = [];
+        if (v.suggestedEntry != null) parts.push('Entry: ' + fmtLevel(v.suggestedEntry));
+        if (v.stopLoss != null) parts.push('SL: ' + fmtLevel(v.stopLoss));
+        if (v.takeProfit != null) parts.push('TP: ' + fmtLevel(v.takeProfit));
+        if (v.riskReward != null) parts.push('R:R 1:' + Number(v.riskReward).toFixed(2));
+        detailLine = parts.join(' &middot; ');
+      }
       return '<div class="review-item" style="' + (isValid ? 'border-color:var(--green);background:var(--green-dim);' : '') + '">' +
         '<strong style="' + (isValid ? 'color:var(--green);' : '') + '">' + label + ' &mdash; ' + escapeHtml(r.tradeStatus) + (direction ? ' (' + escapeHtml(direction) + ')' : '') + '</strong>' +
-        '<br><span style="font-size:0.78rem;color:var(--text-secondary);">Trend: ' + escapeHtml(trend) + (conf != null ? ' &middot; Confidence: ' + conf + '%' : '') + '</span>' +
+        (detailLine ? '<br><span style="font-size:0.78rem;color:var(--text-secondary);">' + detailLine + '</span>' : '') +
+        (reasonLine ? '<br><span style="font-size:0.76rem;color:' + (isValid ? 'var(--text-secondary)' : 'var(--text-muted)') + ';">' + reasonLine + '</span>' : '') +
         '</div>';
     }).join('') || '<div style="font-size:0.82rem;color:var(--text-muted);">No results.</div>';
 
@@ -5710,91 +5728,4 @@ if ('serviceWorker' in navigator) {
   };
   window.aiSyncTrades = syncTradesToBackend;
   window.aiImportMt5Trades = importMt5Trades;
-  window.aiLoadCoach = loadCoachDeepDive;
-  window.aiRunPretrade = runPretradeCheck;
-  window.aiRunChartAnalysis = runChartAnalysis;
-  window.aiSaveChartAnalysisToJournal = saveChartAnalysisToJournal;
-  window.aiUseValidationLevelsInCalculator = useValidationLevelsInCalculator;
-  window.aiRunPositionSize = runPositionSize;
-  window.aiRunTradeReview = runTradeReview;
-  window.aiRunSessionDetect = runSessionDetect;
-  window.aiRunNewsCheck = runNewsCheck;
-  window.aiRunBacktest = runBacktest;
-  window.aiLoadLiveLatest = loadLiveLatest;
-  window.aiCheckMlReadiness = aiCheckMlReadiness;
-  window.aiTrainMlModel = aiTrainMlModel;
-
-  document.addEventListener('DOMContentLoaded', function () {
-    const input = document.getElementById('ai-api-base-input');
-    if (input) input.value = getApiBase();
-    aiLoadActiveMlModel();
-
-    // Pre-fill the last symbol/timeframe used on the live feed, so it's not
-    // retyped every visit.
-    const liveSymbolInput = document.getElementById('ai-live-symbol');
-    const liveTimeframeInput = document.getElementById('ai-live-timeframe');
-    const savedLiveSymbol = localStorage.getItem('te_ai_live_symbol');
-    const savedLiveTimeframe = localStorage.getItem('te_ai_live_timeframe');
-    if (liveSymbolInput && savedLiveSymbol) liveSymbolInput.value = savedLiveSymbol;
-    if (liveTimeframeInput && savedLiveTimeframe) liveTimeframeInput.value = savedLiveTimeframe;
-
-    const modeImage = document.getElementById('ai-ca-mode-image');
-    const modeCandles = document.getElementById('ai-ca-mode-candles');
-    const modeLive = document.getElementById('ai-ca-mode-live');
-    const imageInput = document.getElementById('ai-ca-image-input');
-    const candlesInput = document.getElementById('ai-ca-candles-input');
-    const liveInput = document.getElementById('ai-ca-live-input');
-    function syncCaMode() {
-      const current = modeLive.checked ? 'live' : (modeImage.checked ? 'image' : 'candles');
-      imageInput.style.display = current === 'image' ? '' : 'none';
-      candlesInput.style.display = current === 'candles' ? '' : 'none';
-      liveInput.style.display = current === 'live' ? '' : 'none';
-      stopLiveAutoRefresh();
-      if (current !== 'live') {
-        const cb = document.getElementById('ai-live-autorefresh');
-        if (cb) cb.checked = false;
-      }
-    }
-    if (modeImage && modeCandles && modeLive) {
-      modeImage.addEventListener('change', syncCaMode);
-      modeCandles.addEventListener('change', syncCaMode);
-      modeLive.addEventListener('change', syncCaMode);
-      syncCaMode();
-    }
-    const autoRefreshCb = document.getElementById('ai-live-autorefresh');
-    if (autoRefreshCb) {
-      autoRefreshCb.addEventListener('change', function () {
-        if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
-      });
-    }
-
-    // Sprint 17: MT5 auto-journal import init
-    const mt5ImportAutoCb = document.getElementById('ai-mt5-import-autocheck');
-    if (mt5ImportAutoCb) {
-      mt5ImportAutoCb.addEventListener('change', function () {
-        if (mt5ImportAutoCb.checked) startMt5ImportAutoCheck(); else stopMt5ImportAutoCheck();
-      });
-    }
-
-    // Sprint 16: Live Opportunity Scanner init
-    renderScanList();
-    const scanNotifyCb = document.getElementById('ai-scan-notify');
-    if (scanNotifyCb) {
-      scanNotifyCb.checked = localStorage.getItem(SCAN_NOTIFY_KEY) === '1';
-      scanNotifyCb.addEventListener('change', function () {
-        localStorage.setItem(SCAN_NOTIFY_KEY, scanNotifyCb.checked ? '1' : '0');
-        if (scanNotifyCb.checked && typeof Notification !== 'undefined' && Notification.permission === 'default') {
-          Notification.requestPermission();
-        }
-      });
-    }
-    const scanAutoRefreshCb = document.getElementById('ai-scan-autorefresh');
-    if (scanAutoRefreshCb) {
-      scanAutoRefreshCb.addEventListener('change', function () {
-        if (scanAutoRefreshCb.checked) startScanAutoRefresh(); else stopScanAutoRefresh();
-      });
-    }
-  });
-})();
-</script></body>
-</html>
+  window.aiLoa
