@@ -5728,4 +5728,101 @@ if ('serviceWorker' in navigator) {
   };
   window.aiSyncTrades = syncTradesToBackend;
   window.aiImportMt5Trades = importMt5Trades;
-  window.aiLoa
+  window.aiLoadCoach = loadCoachDeepDive;
+  window.aiRunPretrade = runPretradeCheck;
+  window.aiRunChartAnalysis = runChartAnalysis;
+  window.aiSaveChartAnalysisToJournal = saveChartAnalysisToJournal;
+  window.aiRunTradeReview = runTradeReview;
+  window.aiRunSessionDetect = runSessionDetect;
+  window.aiRunNewsCheck = runNewsCheck;
+  window.aiRunBacktest = runBacktest;
+  window.aiLoadLiveLatest = loadLiveLatest;
+  window.aiCheckMlReadiness = aiCheckMlReadiness;
+  window.aiTrainMlModel = aiTrainMlModel;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const input = document.getElementById('ai-api-base-input');
+    if (input) input.value = getApiBase();
+    aiLoadActiveMlModel();
+
+    // Pre-fill the last symbol/timeframe used on the live feed, so it's not
+    // retyped every visit.
+    const liveSymbolInput = document.getElementById('ai-live-symbol');
+    const liveTimeframeInput = document.getElementById('ai-live-timeframe');
+    const savedLiveSymbol = localStorage.getItem('te_ai_live_symbol');
+    const savedLiveTimeframe = localStorage.getItem('te_ai_live_timeframe');
+    if (liveSymbolInput && savedLiveSymbol) liveSymbolInput.value = savedLiveSymbol;
+    if (liveTimeframeInput && savedLiveTimeframe) liveTimeframeInput.value = savedLiveTimeframe;
+
+    const modeImage = document.getElementById('ai-ca-mode-image');
+    const modeCandles = document.getElementById('ai-ca-mode-candles');
+    const modeLive = document.getElementById('ai-ca-mode-live');
+    const imageInput = document.getElementById('ai-ca-image-input');
+    const candlesInput = document.getElementById('ai-ca-candles-input');
+    const liveInput = document.getElementById('ai-ca-live-input');
+    function syncCaMode() {
+      const current = modeLive.checked ? 'live' : (modeImage.checked ? 'image' : 'candles');
+      imageInput.style.display = current === 'image' ? '' : 'none';
+      candlesInput.style.display = current === 'candles' ? '' : 'none';
+      liveInput.style.display = current === 'live' ? '' : 'none';
+      stopLiveAutoRefresh();
+      if (current !== 'live') {
+        const cb = document.getElementById('ai-live-autorefresh');
+        if (cb) cb.checked = false;
+      }
+    }
+    if (modeImage && modeCandles && modeLive) {
+      modeImage.addEventListener('change', syncCaMode);
+      modeCandles.addEventListener('change', syncCaMode);
+      modeLive.addEventListener('change', syncCaMode);
+      syncCaMode();
+    }
+    const autoRefreshCb = document.getElementById('ai-live-autorefresh');
+    if (autoRefreshCb) {
+      autoRefreshCb.addEventListener('change', function () {
+        if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
+      });
+    }
+
+    // Sprint 17: MT5 auto-journal import init
+    const mt5ImportAutoCb = document.getElementById('ai-mt5-import-autocheck');
+    if (mt5ImportAutoCb) {
+      mt5ImportAutoCb.addEventListener('change', function () {
+        if (mt5ImportAutoCb.checked) startMt5ImportAutoCheck(); else stopMt5ImportAutoCheck();
+      });
+    }
+
+    // LIVE Session & News init -- starts immediately, no button
+    startSessionNewsLive();
+
+    // Sprint 16: Live Opportunity Scanner init
+    renderScanList();
+    const scanNotifyCb = document.getElementById('ai-scan-notify');
+    if (scanNotifyCb) {
+      scanNotifyCb.checked = localStorage.getItem(SCAN_NOTIFY_KEY) === '1';
+      scanNotifyCb.addEventListener('change', function () {
+        localStorage.setItem(SCAN_NOTIFY_KEY, scanNotifyCb.checked ? '1' : '0');
+        if (scanNotifyCb.checked && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+      });
+    }
+    const scanAutoRefreshCb = document.getElementById('ai-scan-autorefresh');
+    if (scanAutoRefreshCb) {
+      // Restore from OUR OWN saved preference, not the browser's native
+      // checkbox-state memory -- the browser can visually re-check this
+      // box on reload without ever firing a 'change' event, which used
+      // to leave the box looking ON while the 30s timer was actually
+      // never (re)started. Explicitly syncing state + starting the
+      // timer here on load fixes that "looks on, but frozen" bug.
+      scanAutoRefreshCb.checked = localStorage.getItem(SCAN_AUTOREFRESH_KEY) === '1';
+      if (scanAutoRefreshCb.checked) startScanAutoRefresh();
+      scanAutoRefreshCb.addEventListener('change', function () {
+        localStorage.setItem(SCAN_AUTOREFRESH_KEY, scanAutoRefreshCb.checked ? '1' : '0');
+        if (scanAutoRefreshCb.checked) startScanAutoRefresh(); else stopScanAutoRefresh();
+      });
+    }
+  });
+})();
+</script></body>
+</html>
