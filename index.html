@@ -4503,7 +4503,7 @@ if ('serviceWorker' in navigator) {
 
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official H4→M15 Point-of-Interest strategy — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official Personal Averaging Strategy (Daily Bias + M15 Point-of-Interest, no fixed stop loss or take profit) — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
     <div class="form-row" style="margin-bottom:0.75rem;">
       <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
         <input type="radio" name="ai-pt-mode" value="live" id="ai-pt-mode-live" checked style="width:auto;"> Use Live Feed (from MT5, no pasting)
@@ -4524,13 +4524,17 @@ if ('serviceWorker' in navigator) {
     </div>
     <div id="ai-pt-candle-fields" style="display:none;">
       <div class="form-group">
-        <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
-        <textarea class="form-input" id="ai-pt-h4-candles" rows="6" placeholder="Paste 10+ H4 candles here, oldest first."></textarea>
+        <label class="form-label">Daily candle data — one bar per line: time,open,high,low,close</label>
+        <textarea class="form-input" id="ai-pt-daily-candles" rows="4" placeholder="Paste your most recent Daily candles here, oldest first -- only the LAST one matters for the bullish/bearish bias check."></textarea>
       </div>
       <div class="form-group">
         <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
         <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
       </div>
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+      <input type="checkbox" id="ai-pt-open-trade-in-loss" style="width:auto;">
+      <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss (checks for rule 3's 2nd, same-size add-on entry)</label>
     </div>
     <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
@@ -4583,10 +4587,19 @@ if ('serviceWorker' in navigator) {
       <div class="form-group">
         <label class="form-label">Candle data (e.g. H4) — one bar per line: time,open,high,low,close</label>
         <textarea class="form-input" id="ai-ca-candles" rows="6" placeholder="2024-01-01T00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T01:00,1.0960,1.0975,1.0955,1.0970"></textarea>
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">Shown as the display/context chart above -- your active strategy's own entry decision uses the Daily + M15 candles below instead.</div>
       </div>
       <div class="form-group">
-        <label class="form-label">M15 candle data (required for your H4→M15 OB strategy to find the entry trigger)</label>
-        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Paste M15 candles in the same format -- your active strategy checks these for a matching order-block touch to trigger entry. Without M15 data it can only confirm the H4 order block was touched, not enter."></textarea>
+        <label class="form-label">Daily candle data (required for your Personal Averaging Strategy's Daily Bias rule)</label>
+        <textarea class="form-input" id="ai-ca-daily-candles" rows="4" placeholder="Paste your most recent Daily candles here, oldest first -- only the LAST one matters (bullish daily candle = BUY setups only, bearish = SELL only)."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">M15 candle data (required to find the entry trigger)</label>
+        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Paste M15 candles in the same format -- your active strategy checks these for a matching order-block/FVG touch, near the end of the zone, to trigger entry."></textarea>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-ca-open-trade-in-loss" style="width:auto;">
+        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss</label>
       </div>
     </div>
 
@@ -4667,20 +4680,27 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Margin Buffer <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Your Personal Averaging Strategy runs with no fixed stop loss by design, so this is the real safety net: how close your account is to XM's margin call (50% margin level) and stop-out (20%) thresholds. It only warns -- it never closes anything. Requires the updated MT5 EA (pushes balance/equity/margin each tick).</p>
+    <div id="ai-margin-output">Waiting for your MT5 EA to push account data...</div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Backtest</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your H4→M15 Order Block / Fair Value Gap strategy against real historical candles — H4 and M15 walked together in sync, exactly like live trading. No forced R:R.</p>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your Personal Averaging Strategy (Daily Bias + M15 Order Block/FVG, no fixed SL/TP) against real historical candles — Daily and M15 walked together in sync, exactly like live trading.</p>
     <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:0.75rem;">Both candle series need REAL date/times (e.g. <code>2024-01-01T00:00:00</code>), not just labels — the two timeframes are aligned by actual time to avoid any lookahead.</div>
     <div class="form-group">
-      <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-bt-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T04:00:00,1.0960,1.0975,1.0955,1.0970"></textarea>
+      <label class="form-label">Daily candle data — one bar per line: time,open,high,low,close</label>
+      <textarea class="form-input" id="ai-bt-daily-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-02T00:00:00,1.0960,1.0975,1.0955,1.0970"></textarea>
     </div>
     <div class="form-group">
       <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
       <textarea class="form-input" id="ai-bt-m15-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0958,1.0945,1.0955&#10;2024-01-01T00:15:00,1.0955,1.0962,1.0950,1.0960"></textarea>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Lookback window (H4)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback" placeholder="100" value="100"></div>
+      <div class="form-group"><label class="form-label">Lookback window (Daily)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback-daily" placeholder="30" value="30"></div>
       <div class="form-group"><label class="form-label">Lookback window (M15)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback-m15" placeholder="100" value="100"></div>
+      <div class="form-group"><label class="form-label">Target net profit per unit</label><input type="number" step="any" class="form-input" id="ai-bt-target-profit" placeholder="0" value="0"></div>
     </div>
     <button class="btn btn-primary" onclick="aiRunBacktest()">Run backtest</button>
     <div id="ai-bt-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
@@ -4786,7 +4806,13 @@ if ('serviceWorker' in navigator) {
   // time. Real 4xx errors (bad request, validation, etc.) are NOT
   // retried -- those mean the backend answered and something about the
   // request itself needs fixing.
-  const COLD_START_RETRY_DELAYS_MS = [5000, 20000];
+  // Render's free tier itself warns cold starts can take "50 seconds or
+  // more" -- the old [5000, 20000] budget only covered 25s total, so a
+  // slow wake-up would exhaust every retry and surface as "Failed to
+  // fetch" even though the backend was simply still starting up. This
+  // budget covers ~75s of retrying, comfortably past the documented
+  // worst case.
+  const COLD_START_RETRY_DELAYS_MS = [5000, 15000, 25000, 30000];
 
   async function apiFetch(path, opts = {}) {
     const base = getApiBase();
@@ -4955,12 +4981,17 @@ if ('serviceWorker' in navigator) {
 
   function renderPretradeResult(data) {
     const statusColor = data.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
-    const finalResult = data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT';
+    const finalResult = data.recommendation === 'ADD'
+      ? ('ADD-ON — ' + (data.direction || '').toUpperCase())
+      : (data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT');
     let html =
       '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(data.tradeStatus) + '</strong> — ' + escapeHtml(data.recommendation) + (data.direction ? ' (' + escapeHtml(data.direction) + ')' : '') + '</div>' +
       renderRuleChecklist(data.ruleChecks, finalResult) +
-      ((data.suggestedEntry != null || data.stopLoss != null || data.takeProfit != null)
-        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (data.suggestedEntry ?? '—') + ' · SL ' + (data.stopLoss ?? '—') + ' · TP ' + (data.takeProfit ?? '—') + (data.riskReward != null ? ' · R:R ' + data.riskReward.toFixed(2) : '') + '</div>'
+      (data.suggestedEntry != null
+        ? '<div class="review-item"><strong>Suggested entry:</strong> ' + data.suggestedEntry + ' — no fixed stop loss or take profit by design.</div>'
+        : '') +
+      (data.breakEvenPrice != null
+        ? '<div class="review-item"><strong>Break-even/small-profit exit:</strong> ' + data.breakEvenPrice.toFixed(5) + '</div>'
         : '');
 
     if (data.tradeStatus === 'VALID') {
@@ -4990,7 +5021,7 @@ if ('serviceWorker' in navigator) {
       const symbol = document.getElementById('ai-pt-live-symbol').value.trim();
       const timeframe = document.getElementById('ai-pt-live-timeframe').value.trim();
       if (!symbol || !timeframe) { el.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).'; return; }
-      el.textContent = 'Checking...';
+      el.textContent = 'Checking... (if the backend has been idle it can take up to a minute to wake up -- this is normal, let it keep trying)';
       try {
         const body = { pair: pair, session: session || null, symbol: symbol, timeframe: timeframe };
         const data = await apiFetch('/api/v1/assistant/pretrade-analysis-live', { method: 'POST', body: JSON.stringify(body) });
@@ -5001,27 +5032,29 @@ if ('serviceWorker' in navigator) {
       return;
     }
 
-    const h4Raw = document.getElementById('ai-pt-h4-candles').value;
+    const dailyRaw = document.getElementById('ai-pt-daily-candles').value;
     const m15Raw = document.getElementById('ai-pt-m15-candles').value;
-    if (!h4Raw.trim()) { el.textContent = 'Paste H4 candle data first.'; return; }
+    const openTradeInLoss = document.getElementById('ai-pt-open-trade-in-loss').checked;
+    if (!dailyRaw.trim()) { el.textContent = 'Paste Daily candle data first.'; return; }
     if (!m15Raw.trim()) { el.textContent = 'Paste M15 candle data too.'; return; }
 
-    let h4Candles, m15Candles;
+    let dailyCandles, m15Candles;
     try {
-      h4Candles = parseCandlesTextarea(h4Raw);
+      dailyCandles = parseCandlesTextarea(dailyRaw);
       m15Candles = parseCandlesTextarea(m15Raw);
     } catch (e) {
       el.textContent = e.message;
       return;
     }
 
-    el.textContent = 'Checking...';
+    el.textContent = 'Checking... (if the backend has been idle it can take up to a minute to wake up -- this is normal, let it keep trying)';
     try {
       const body = {
         pair: pair,
         session: session || null,
-        h4Candles: h4Candles,
+        dailyCandles: dailyCandles,
         m15Candles: m15Candles,
+        openTradeInLoss: openTradeInLoss,
       };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
       el.innerHTML = renderPretradeResult(data);
@@ -5056,26 +5089,24 @@ if ('serviceWorker' in navigator) {
       '</div></div>';
   }
 
-  // Shared checklist renderer for the ONE official H4->M15 POI
-  // strategy's ruleChecks array (H4 Order Block/FVG / M15 Order
-  // Block/FVG / POI Alignment / Entry / SL / TP) -- used by Chart
-  // Analysis Engine and Pre-Trade Check so a WAIT always shows exactly
-  // which step is still pending, instead of a single pass/fail flag.
-  // Status wording is tailored per step: POI-touch steps say WAITING
-  // (price just hasn't gotten there yet, nothing is "broken"),
-  // alignment says NOT ALIGNED, and the entry/target step says NO
-  // TARGET FOUND -- NOT_CHECKED steps say NOT CHECKED, except the
-  // final entry/target step which says NOT CALCULATED.
+  // Shared checklist renderer for the ONE official Personal Averaging
+  // Strategy's ruleChecks array (Daily Bias / M15 Order Block/FVG /
+  // Entry Timing (near end of zone) / Add-On Entry (2nd position)) --
+  // used by Chart Analysis Engine, Pre-Trade Check, and the Scanner so
+  // a WAIT always shows exactly which step is still pending, instead
+  // of a single pass/fail flag. Status wording is tailored per step:
+  // Daily Bias failing says NO DAILY CANDLE (nothing to check yet),
+  // the POI/timing steps say WAITING (price just hasn't gotten there
+  // yet, nothing is "broken"), and the add-on step says NO ADD-ON YET
+  // -- NOT_CHECKED steps say NOT CHECKED.
   function _ruleStatusLabel(rule, status) {
     if (status === 'PASSED') return { icon: '✅', word: 'PASS', color: 'var(--green)' };
     if (status === 'NOT_CHECKED') {
-      return rule === 'Entry / SL / TP'
-        ? { icon: '⏸', word: 'NOT CALCULATED', color: 'var(--text-muted)' }
-        : { icon: '⏸', word: 'NOT CHECKED', color: 'var(--text-muted)' };
+      return { icon: '⏸', word: 'NOT CHECKED', color: 'var(--text-muted)' };
     }
     // FAILED
-    if (rule === 'POI Alignment') return { icon: '❌', word: 'NOT ALIGNED', color: 'var(--red)' };
-    if (rule === 'Entry / SL / TP') return { icon: '❌', word: 'NO TARGET FOUND', color: 'var(--red)' };
+    if (rule === 'Daily Bias') return { icon: '❌', word: 'NO DAILY CANDLE', color: 'var(--red)' };
+    if (rule === 'Add-On Entry (2nd position)') return { icon: '❌', word: 'NO ADD-ON YET', color: 'var(--red)' };
     return { icon: '❌', word: 'WAITING', color: 'var(--red)' };
   }
 
@@ -5121,12 +5152,17 @@ if ('serviceWorker' in navigator) {
   function renderTradeValidation(v) {
     const el = document.getElementById('ai-ca-validation-output');
     const statusColor = v.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
-    const finalResult = v.recommendation === 'TAKE' ? ('TAKE — ' + (v.direction || '').toUpperCase()) : 'WAIT';
+    const finalResult = v.recommendation === 'ADD'
+      ? ('ADD-ON — ' + (v.direction || '').toUpperCase())
+      : (v.recommendation === 'TAKE' ? ('TAKE — ' + (v.direction || '').toUpperCase()) : 'WAIT');
     el.innerHTML =
       '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(v.tradeStatus) + '</strong> — ' + escapeHtml(v.recommendation) + (v.direction ? ' (' + escapeHtml(v.direction) + ')' : '') + '</div>' +
       renderRuleChecklist(v.ruleChecks, finalResult) +
-      ((v.suggestedEntry != null || v.stopLoss != null || v.takeProfit != null)
-        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (v.suggestedEntry ?? '—') + ' · SL ' + (v.stopLoss ?? '—') + ' · TP ' + (v.takeProfit ?? '—') + (v.riskReward != null ? ' · R:R ' + v.riskReward.toFixed(2) : '') + '</div>'
+      (v.suggestedEntry != null
+        ? '<div class="review-item"><strong>Suggested entry:</strong> ' + v.suggestedEntry + ' — this strategy runs with no fixed stop loss or take profit by design.</div>'
+        : '') +
+      (v.breakEvenPrice != null
+        ? '<div class="review-item"><strong>Break-even/small-profit exit:</strong> ' + v.breakEvenPrice.toFixed(5) + ' — rule 4\'s "never close in lost", made concrete.</div>'
         : '');
   }
 
@@ -5206,6 +5242,8 @@ if ('serviceWorker' in navigator) {
         if (!raw.trim()) { errorEl.textContent = 'Paste at least one candle first.'; return; }
         const candles = parseCandlesTextarea(raw);
         const m15Raw = document.getElementById('ai-ca-m15-candles').value;
+        const dailyRaw = document.getElementById('ai-ca-daily-candles').value;
+        const openTradeInLoss = document.getElementById('ai-ca-open-trade-in-loss').checked;
         const body = {
           candles: candles,
           direction: direction,
@@ -5215,9 +5253,13 @@ if ('serviceWorker' in navigator) {
           hasM15Choch: hasM15Choch,
           hasM15EntryConfirmation: hasM15Entry,
           hasLiquiditySweep: hasSweep,
+          openTradeInLoss: openTradeInLoss,
         };
         if (m15Raw && m15Raw.trim()) {
           body.m15Candles = parseCandlesTextarea(m15Raw);
+        }
+        if (dailyRaw && dailyRaw.trim()) {
+          body.dailyCandles = parseCandlesTextarea(dailyRaw);
         }
         data = await apiFetch('/api/v1/chart/full-analysis/candles', { method: 'POST', body: JSON.stringify(body) });
       }
@@ -5390,50 +5432,97 @@ if ('serviceWorker' in navigator) {
     if (sessionNewsLiveTimer) { clearInterval(sessionNewsLiveTimer); sessionNewsLiveTimer = null; }
   }
 
+  // Sprint 18 -- Margin Buffer: the real safety net for a strategy
+  // with no fixed stop loss. Polls the latest balance/equity/margin
+  // reading the MT5 EA pushed and shows how close the account is to
+  // XM's margin call (50%) / stop-out (20%) levels. Purely
+  // informational -- never blocks or closes anything.
+  let marginBufferLiveTimer = null;
+  async function refreshMarginBuffer() {
+    const el = document.getElementById('ai-margin-output');
+    if (!el) return;
+    try {
+      const data = await apiFetch('/api/v1/account-margin/latest');
+      el.innerHTML = renderMarginBuffer(data);
+    } catch (e) {
+      // 404 just means the EA hasn't pushed anything yet -- not an error worth alarming over.
+      if (e.message.indexOf('404') === 0) {
+        el.textContent = 'Waiting for your MT5 EA to push account data...';
+      } else {
+        el.textContent = 'Error: ' + e.message;
+      }
+    }
+  }
+  function startMarginBufferLive() {
+    stopMarginBufferLive();
+    refreshMarginBuffer();
+    marginBufferLiveTimer = setInterval(refreshMarginBuffer, 60000);
+  }
+  function stopMarginBufferLive() {
+    if (marginBufferLiveTimer) { clearInterval(marginBufferLiveTimer); marginBufferLiveTimer = null; }
+  }
+  function renderMarginBuffer(data) {
+    if (data.status === 'NO_POSITIONS') {
+      return '<div class="review-item"><strong style="color:var(--green);">SAFE</strong> — no open positions right now. Balance: ' + data.balance.toFixed(2) + '</div>';
+    }
+    const statusColor = data.status === 'DANGER' ? 'var(--red)' : (data.status === 'WARNING' ? '#e0a800' : 'var(--green)');
+    const statusWord = data.status === 'DANGER' ? '⚠ DANGER — near stop-out' : (data.status === 'WARNING' ? '⚠ WARNING — past margin call' : '✅ SAFE');
+    return '<div class="review-item"><strong style="color:' + statusColor + ';">' + statusWord + '</strong> — margin level ' + data.marginLevelPct.toFixed(1) + '%</div>' +
+      '<div class="review-item">Balance ' + data.balance.toFixed(2) + ' · Equity ' + data.equity.toFixed(2) + ' · Floating P&amp;L ' + (data.floatingPnl >= 0 ? '+' : '') + data.floatingPnl.toFixed(2) + '</div>' +
+      '<div class="review-item" style="font-size:0.8rem;color:var(--text-muted);">' +
+      (data.bufferToMarginCallPct.toFixed(1)) + ' margin-level points above margin call (' + data.marginCallLevelPct + '%) · ' +
+      (data.bufferToStopOutPct.toFixed(1)) + ' points above stop-out (' + data.stopOutLevelPct + '%)' +
+      '</div>';
+  }
+
   async function runBacktest() {
     const errorEl = document.getElementById('ai-bt-error');
     const outputEl = document.getElementById('ai-bt-output');
     errorEl.textContent = '';
     outputEl.innerHTML = '';
 
-    const raw = document.getElementById('ai-bt-candles').value;
+    const rawDaily = document.getElementById('ai-bt-daily-candles').value;
     const rawM15 = document.getElementById('ai-bt-m15-candles').value;
-    if (!raw.trim()) { errorEl.textContent = 'Paste H4 candle data first (50+ bars for a meaningful sample).'; return; }
-    if (!rawM15.trim()) { errorEl.textContent = 'Paste M15 candle data too — this strategy needs both timeframes to replay your rules.'; return; }
+    if (!rawDaily.trim()) { errorEl.textContent = 'Paste Daily candle data first.'; return; }
+    if (!rawM15.trim()) { errorEl.textContent = 'Paste M15 candle data too (50+ bars for a meaningful sample) — this strategy needs both timeframes to replay your rules.'; return; }
 
-    let candles, m15Candles;
+    let dailyCandles, m15Candles;
     try {
-      candles = parseCandlesTextarea(raw);
+      dailyCandles = parseCandlesTextarea(rawDaily);
       m15Candles = parseCandlesTextarea(rawM15);
     } catch (e) {
       errorEl.textContent = e.message;
       return;
     }
 
-    const lookback = parseInt(document.getElementById('ai-bt-lookback').value, 10);
+    const lookbackDaily = parseInt(document.getElementById('ai-bt-lookback-daily').value, 10);
     const lookbackM15 = parseInt(document.getElementById('ai-bt-lookback-m15').value, 10);
+    const targetProfit = parseFloat(document.getElementById('ai-bt-target-profit').value);
 
     const body = {
-      candles: candles,
+      candles: dailyCandles, // required by the API shape; unused by the active strategy
+      dailyCandles: dailyCandles,
       m15Candles: m15Candles,
-      lookbackWindow: isNaN(lookback) ? 100 : lookback,
+      lookbackWindowDaily: isNaN(lookbackDaily) ? 30 : lookbackDaily,
       lookbackWindowM15: isNaN(lookbackM15) ? 100 : lookbackM15,
+      targetNetProfitPerUnit: isNaN(targetProfit) ? 0 : targetProfit,
     };
 
     outputEl.textContent = 'Running backtest...';
     try {
       const data = await apiFetch('/api/v1/backtest/run', { method: 'POST', body: JSON.stringify(body) });
-      const rows = data.trades.map(function (t) {
-        const color = t.outcome === 'WIN' ? 'var(--green)' : (t.outcome === 'LOSS' ? 'var(--red)' : 'var(--text-muted)');
+      const rows = (data.cyclesDetail || []).map(function (c) {
+        const color = c.outcome === 'CLOSED' ? 'var(--green)' : 'var(--text-muted)';
+        const entriesStr = c.entries.map(function (e) { return e.price; }).join(' → ');
         return '<div style="font-size:0.78rem;padding:0.25rem 0;border-bottom:1px solid var(--border);">' +
-          escapeHtml(t.entryTime) + ' · ' + escapeHtml(t.direction) + ' @ ' + t.entry +
-          ' <span style="color:' + color + ';font-weight:600;">' + escapeHtml(t.outcome) + '</span>' +
-          (t.rMultiple != null ? ' (' + t.rMultiple.toFixed(2) + 'R)' : '') +
+          escapeHtml(c.direction) + ' @ ' + entriesStr + (c.addOnUsed ? ' (add-on used)' : '') +
+          ' <span style="color:' + color + ';font-weight:600;">' + escapeHtml(c.outcome) + '</span>' +
+          ' · net ' + c.netPnlPerUnit.toFixed(5) + '/unit · MAE ' + c.maxAdverseExcursion.toFixed(5) + ' · ' + c.barsHeld + ' bars' +
           '</div>';
       }).join('');
       outputEl.innerHTML =
-        '<div class="review-item"><strong>' + data.totalTrades + ' closed trades</strong> — ' + data.wins + 'W / ' + data.losses + 'L (' + data.winRate + '% win rate)' + (data.openTrades ? ', ' + data.openTrades + ' still open' : '') + '</div>' +
-        '<div class="review-item">Total: ' + data.totalRMultiple.toFixed(2) + 'R · Average: ' + data.averageRMultiple.toFixed(2) + 'R per trade' + (data.profitFactor != null ? ' · Profit factor: ' + data.profitFactor.toFixed(2) : '') + '</div>' +
+        '<div class="review-item"><strong>' + data.cyclesTotal + ' cycles</strong> — ' + data.cyclesClosed + ' closed, ' + data.cyclesOpen + ' still open</div>' +
+        '<div class="review-item">Add-on used in ' + data.addOnRatePct + '% of cycles' + (data.avgBarsHeld != null ? ' · Average ' + data.avgBarsHeld + ' M15 bars held' : '') + (data.maxAdverseExcursion != null ? ' · Worst floating loss reached: ' + data.maxAdverseExcursion.toFixed(5) + ' per unit' : '') + '</div>' +
         (data.notes.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.notes.map(escapeHtml).join('<br>') + '</div>' : '') +
         (rows ? '<div style="margin-top:0.75rem;max-height:260px;overflow-y:auto;">' + rows + '</div>' : '');
     } catch (e) {
@@ -5889,6 +5978,9 @@ if ('serviceWorker' in navigator) {
 
     // LIVE Session & News init -- starts immediately, no button
     startSessionNewsLive();
+
+    // Sprint 18: LIVE Margin Buffer init -- starts immediately, no button
+    startMarginBufferLive();
 
     // Sprint 16: Live Opportunity Scanner init
     renderScanList();
