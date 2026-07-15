@@ -4503,20 +4503,34 @@ if ('serviceWorker' in navigator) {
 
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official H4→M15 Point-of-Interest strategy on real candles — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official H4→M15 Point-of-Interest strategy — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
+    <div class="form-row" style="margin-bottom:0.75rem;">
+      <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
+        <input type="radio" name="ai-pt-mode" value="live" id="ai-pt-mode-live" checked style="width:auto;"> Use Live Feed (from MT5, no pasting)
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
+        <input type="radio" name="ai-pt-mode" value="candles" id="ai-pt-mode-candles" style="width:auto;"> Paste candle data
+      </label>
+    </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" list="ai-ca-pair-list" autocomplete="off"></div>
       <div class="form-group"><label class="form-label">Session (optional)</label>
         <select class="form-select" id="ai-pt-session"><option value="">— Select —</option><option value="Asian">Asian</option><option value="London">London</option><option value="Overlap">Overlap</option><option value="New York">New York</option></select>
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-pt-h4-candles" rows="6" placeholder="Paste 10+ H4 candles here, oldest first."></textarea>
+    <div id="ai-pt-live-fields" class="form-row">
+      <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-pt-live-symbol" placeholder="e.g. EURUSD, GER40Cash" list="ai-live-symbol-list" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-pt-live-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off"></div>
     </div>
-    <div class="form-group">
-      <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
+    <div id="ai-pt-candle-fields" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">H4 candle data — one bar per line: time,open,high,low,close</label>
+        <textarea class="form-input" id="ai-pt-h4-candles" rows="6" placeholder="Paste 10+ H4 candles here, oldest first."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
+        <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
+      </div>
     </div>
     <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
@@ -4763,18 +4777,52 @@ if ('serviceWorker' in navigator) {
     };
   }
 
+  // Render's free tier puts the backend to sleep after idle time -- the
+  // first request after a break can take 30-50s to wake it, and either
+  // fails outright (connection refused, "Failed to fetch") or comes
+  // back as a 502/503 while it's still booting. Retrying with real
+  // waits (not just a couple seconds) covers that instead of surfacing
+  // a scary-looking network error for something that just needed more
+  // time. Real 4xx errors (bad request, validation, etc.) are NOT
+  // retried -- those mean the backend answered and something about the
+  // request itself needs fixing.
+  const COLD_START_RETRY_DELAYS_MS = [5000, 20000];
+
   async function apiFetch(path, opts = {}) {
     const base = getApiBase();
     if (!base) throw new Error('Set your backend URL above first.');
-    const res = await fetch(base + path, {
-      ...opts,
-      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(res.status + ': ' + text.slice(0, 200));
+
+    let lastError;
+    for (let attempt = 0; attempt <= COLD_START_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const res = await fetch(base + path, {
+          ...opts,
+          headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        });
+        if (!res.ok) {
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          if (retryable && attempt < COLD_START_RETRY_DELAYS_MS.length) {
+            await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
+            continue;
+          }
+          const text = await res.text().catch(() => '');
+          throw new Error(res.status + ': ' + text.slice(0, 200));
+        }
+        return await res.json();
+      } catch (e) {
+        lastError = e;
+        // Only retry genuine network failures (fetch throwing before
+        // any response) or the retryable statuses handled above --
+        // anything else (like a JSON parse error) should surface as-is.
+        const isNetworkFailure = e instanceof TypeError;
+        if (isNetworkFailure && attempt < COLD_START_RETRY_DELAYS_MS.length) {
+          await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
+          continue;
+        }
+        throw e;
+      }
     }
-    return res.json();
+    throw lastError;
   }
 
   function escapeHtml(s) {
@@ -4905,13 +4953,56 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  function renderPretradeResult(data) {
+    const statusColor = data.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
+    const finalResult = data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT';
+    let html =
+      '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(data.tradeStatus) + '</strong> — ' + escapeHtml(data.recommendation) + (data.direction ? ' (' + escapeHtml(data.direction) + ')' : '') + '</div>' +
+      renderRuleChecklist(data.ruleChecks, finalResult) +
+      ((data.suggestedEntry != null || data.stopLoss != null || data.takeProfit != null)
+        ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (data.suggestedEntry ?? '—') + ' · SL ' + (data.stopLoss ?? '—') + ' · TP ' + (data.takeProfit ?? '—') + (data.riskReward != null ? ' · R:R ' + data.riskReward.toFixed(2) : '') + '</div>'
+        : '');
+
+    if (data.tradeStatus === 'VALID') {
+      const mlLine = data.mlAvailable
+        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
+        : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
+      html +=
+        '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;"><em style="font-size:0.76rem;color:var(--text-muted);">Extra context below — informational only, never overrides the decision above:</em></div>' +
+        '<div class="review-item">ML recommendation: ' + escapeHtml(data.mlRecommendation || '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · AI confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
+        mlLine +
+        (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
+        (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
+        (data.historicalReasons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.historicalReasons.map(escapeHtml).join('<br>') + '</div>' : '');
+    }
+    return html;
+  }
+
   async function runPretradeCheck() {
     const el = document.getElementById('ai-pretrade-output');
     const pair = document.getElementById('ai-pt-pair').value.trim();
     const session = document.getElementById('ai-pt-session').value;
+    if (!pair) { el.textContent = 'Enter a pair first.'; return; }
+
+    const useLive = document.getElementById('ai-pt-mode-live').checked;
+
+    if (useLive) {
+      const symbol = document.getElementById('ai-pt-live-symbol').value.trim();
+      const timeframe = document.getElementById('ai-pt-live-timeframe').value.trim();
+      if (!symbol || !timeframe) { el.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).'; return; }
+      el.textContent = 'Checking...';
+      try {
+        const body = { pair: pair, session: session || null, symbol: symbol, timeframe: timeframe };
+        const data = await apiFetch('/api/v1/assistant/pretrade-analysis-live', { method: 'POST', body: JSON.stringify(body) });
+        el.innerHTML = renderPretradeResult(data);
+      } catch (e) {
+        el.textContent = 'Error: ' + e.message + (e.message.indexOf('404') === 0 ? ' — make sure your MT5 EA is attached and has pushed at least one update for this symbol/timeframe.' : '');
+      }
+      return;
+    }
+
     const h4Raw = document.getElementById('ai-pt-h4-candles').value;
     const m15Raw = document.getElementById('ai-pt-m15-candles').value;
-    if (!pair) { el.textContent = 'Enter a pair first.'; return; }
     if (!h4Raw.trim()) { el.textContent = 'Paste H4 candle data first.'; return; }
     if (!m15Raw.trim()) { el.textContent = 'Paste M15 candle data too.'; return; }
 
@@ -4933,28 +5024,7 @@ if ('serviceWorker' in navigator) {
         m15Candles: m15Candles,
       };
       const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
-      const statusColor = data.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
-      const finalResult = data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT';
-      let html =
-        '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(data.tradeStatus) + '</strong> — ' + escapeHtml(data.recommendation) + (data.direction ? ' (' + escapeHtml(data.direction) + ')' : '') + '</div>' +
-        renderRuleChecklist(data.ruleChecks, finalResult) +
-        ((data.suggestedEntry != null || data.stopLoss != null || data.takeProfit != null)
-          ? '<div class="review-item"><strong>Suggested:</strong> Entry ' + (data.suggestedEntry ?? '—') + ' · SL ' + (data.stopLoss ?? '—') + ' · TP ' + (data.takeProfit ?? '—') + (data.riskReward != null ? ' · R:R ' + data.riskReward.toFixed(2) : '') + '</div>'
-          : '');
-
-      if (data.tradeStatus === 'VALID') {
-        const mlLine = data.mlAvailable
-          ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
-          : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
-        html +=
-          '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;"><em style="font-size:0.76rem;color:var(--text-muted);">Extra context below — informational only, never overrides the decision above:</em></div>' +
-          '<div class="review-item">ML recommendation: ' + escapeHtml(data.mlRecommendation || '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · AI confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
-          mlLine +
-          (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
-          (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
-          (data.historicalReasons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.historicalReasons.map(escapeHtml).join('<br>') + '</div>' : '');
-      }
-      el.innerHTML = html;
+      el.innerHTML = renderPretradeResult(data);
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
     }
@@ -5605,17 +5675,25 @@ if ('serviceWorker' in navigator) {
 
     statusEl.textContent = 'Scanning ' + list.length + ' asset(s)...';
     // Render's free tier puts the backend to sleep after inactivity --
-    // the first request after a while wakes it up (can take 20-40s),
-    // and every OTHER symbol's request fired in the same batch can
-    // time out/fail while that's happening. One retry after a short
-    // delay covers that case instead of showing "couldn't fetch" for
-    // half the list on the first scan after idle time.
+    // waking it up can take 30-50s, and every symbol's request fired in
+    // the same batch can fail (connection refused, or a 502/503 while
+    // it's still booting) until it's fully up. Retrying with real waits
+    // (matching apiFetch's COLD_START_RETRY_DELAYS_MS) covers that
+    // instead of showing "couldn't fetch" for most of the list on the
+    // first scan after idle time.
     async function fetchLiveWithRetry(url, attempt) {
+      attempt = attempt || 0;
       try {
-        return await fetch(url);
+        const res = await fetch(url);
+        const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+        if (retryable && attempt < COLD_START_RETRY_DELAYS_MS.length) {
+          await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
+          return fetchLiveWithRetry(url, attempt + 1);
+        }
+        return res;
       } catch (e) {
-        if (attempt >= 1) throw e;
-        await new Promise(function (r) { setTimeout(r, 4000); });
+        if (attempt >= COLD_START_RETRY_DELAYS_MS.length) throw e;
+        await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
         return fetchLiveWithRetry(url, attempt + 1);
       }
     }
@@ -5782,6 +5860,23 @@ if ('serviceWorker' in navigator) {
       autoRefreshCb.addEventListener('change', function () {
         if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
       });
+    }
+
+    // Pre-Trade Check mode toggle (Live Feed vs paste candles) -- same
+    // show/hide pattern as Chart Analysis Engine's mode radios above.
+    const ptModeLive = document.getElementById('ai-pt-mode-live');
+    const ptModeCandles = document.getElementById('ai-pt-mode-candles');
+    const ptLiveFields = document.getElementById('ai-pt-live-fields');
+    const ptCandleFields = document.getElementById('ai-pt-candle-fields');
+    function syncPtMode() {
+      const live = ptModeLive.checked;
+      if (ptLiveFields) ptLiveFields.style.display = live ? '' : 'none';
+      if (ptCandleFields) ptCandleFields.style.display = live ? 'none' : '';
+    }
+    if (ptModeLive && ptModeCandles) {
+      ptModeLive.addEventListener('change', syncPtMode);
+      ptModeCandles.addEventListener('change', syncPtMode);
+      syncPtMode();
     }
 
     // Sprint 17: MT5 auto-journal import init
