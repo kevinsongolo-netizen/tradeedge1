@@ -4539,6 +4539,7 @@ if ('serviceWorker' in navigator) {
       <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-pt-live-symbol" placeholder="e.g. EURUSD, GER40Cash" list="ai-live-symbol-list" autocomplete="off"></div>
       <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-pt-live-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off"></div>
     </div>
+    <div id="ai-pt-live-addon-note" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.75rem;">Rule 3's 2nd, same-size add-on entry is detected automatically from your MT5 EA (it checks every push whether you already have a losing open position on this symbol) -- no need to tell it manually in Live Feed mode.</div>
     <div id="ai-pt-candle-fields" style="display:none;">
       <div class="form-group">
         <label class="form-label">Daily candle data — one bar per line: time,open,high,low,close</label>
@@ -4548,10 +4549,10 @@ if ('serviceWorker' in navigator) {
         <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
         <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
       </div>
-    </div>
-    <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-      <input type="checkbox" id="ai-pt-open-trade-in-loss" style="width:auto;">
-      <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss (checks for rule 3's 2nd, same-size add-on entry)</label>
+      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="checkbox" id="ai-pt-open-trade-in-loss" style="width:auto;">
+        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss (checks for rule 3's 2nd, same-size add-on entry)</label>
+      </div>
     </div>
     <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
@@ -6012,10 +6013,12 @@ if ('serviceWorker' in navigator) {
     const ptModeCandles = document.getElementById('ai-pt-mode-candles');
     const ptLiveFields = document.getElementById('ai-pt-live-fields');
     const ptCandleFields = document.getElementById('ai-pt-candle-fields');
+    const ptLiveAddonNote = document.getElementById('ai-pt-live-addon-note');
     function syncPtMode() {
       const live = ptModeLive.checked;
       if (ptLiveFields) ptLiveFields.style.display = live ? '' : 'none';
       if (ptCandleFields) ptCandleFields.style.display = live ? 'none' : '';
+      if (ptLiveAddonNote) ptLiveAddonNote.style.display = live ? '' : 'none';
     }
     if (ptModeLive && ptModeCandles) {
       ptModeLive.addEventListener('change', syncPtMode);
