@@ -1542,12 +1542,13 @@ body::before {
           <label class="form-label">POI (Point of Interest)</label>
           <select class="form-select" id="j-poi">
             <option value="">— Select —</option>
-            <option value="Order Block">Order Block</option>
-            <option value="Fair Value Gap">Fair Value Gap (FVG)</option>
-            <option value="Breaker Block">Breaker Block</option>
-            <option value="Mitigation Block">Mitigation Block</option>
-            <option value="Liquidity Sweep">Liquidity Sweep</option>
-            <option value="Supply/Demand Zone">Supply/Demand Zone</option>
+            <option value="Bullish OB">Bullish OB</option>
+            <option value="Bearish OB">Bearish OB</option>
+            <option value="Bullish FVG">Bullish FVG</option>
+            <option value="Bearish FVG">Bearish FVG</option>
+            <option value="Equilibrium">Equilibrium</option>
+            <option value="Premium">Premium</option>
+            <option value="Discount">Discount</option>
             <option value="Other">Other</option>
           </select>
         </div>
@@ -3100,12 +3101,13 @@ function renderJournal() {
       <td>
         <select class="form-select" style="font-size:0.75rem;padding:0.3rem 0.5rem;min-width:130px" onchange="updatePoiInline('${e.id}', this.value)">
           <option value="" ${!e.poi ? 'selected' : ''}>— Select —</option>
-          <option value="Order Block" ${e.poi === 'Order Block' ? 'selected' : ''}>Order Block</option>
-          <option value="Fair Value Gap" ${e.poi === 'Fair Value Gap' ? 'selected' : ''}>Fair Value Gap (FVG)</option>
-          <option value="Breaker Block" ${e.poi === 'Breaker Block' ? 'selected' : ''}>Breaker Block</option>
-          <option value="Mitigation Block" ${e.poi === 'Mitigation Block' ? 'selected' : ''}>Mitigation Block</option>
-          <option value="Liquidity Sweep" ${e.poi === 'Liquidity Sweep' ? 'selected' : ''}>Liquidity Sweep</option>
-          <option value="Supply/Demand Zone" ${e.poi === 'Supply/Demand Zone' ? 'selected' : ''}>Supply/Demand Zone</option>
+          <option value="Bullish OB" ${e.poi === 'Bullish OB' ? 'selected' : ''}>Bullish OB</option>
+          <option value="Bearish OB" ${e.poi === 'Bearish OB' ? 'selected' : ''}>Bearish OB</option>
+          <option value="Bullish FVG" ${e.poi === 'Bullish FVG' ? 'selected' : ''}>Bullish FVG</option>
+          <option value="Bearish FVG" ${e.poi === 'Bearish FVG' ? 'selected' : ''}>Bearish FVG</option>
+          <option value="Equilibrium" ${e.poi === 'Equilibrium' ? 'selected' : ''}>Equilibrium</option>
+          <option value="Premium" ${e.poi === 'Premium' ? 'selected' : ''}>Premium</option>
+          <option value="Discount" ${e.poi === 'Discount' ? 'selected' : ''}>Discount</option>
           <option value="Other" ${e.poi === 'Other' ? 'selected' : ''}>Other</option>
         </select>
       </td>
