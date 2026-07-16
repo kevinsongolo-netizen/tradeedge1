@@ -1840,14 +1840,23 @@ Note: Prices with spaces (4 267,30) and commas (19,06620) are auto-detected!"></
 // ============================
 
 const DEFAULT_RULES = {
+  // Sprint 18 -- these defaults now match the user's own Personal
+  // Averaging Strategy rules exactly (verbatim wording, kept as the
+  // user wrote them, same as the Checklist page's official 5 rules),
+  // instead of the old generic H4/M15 fixed-SL/TP defaults that used
+  // to contradict this strategy (e.g. "always set stop-loss", "no
+  // averaging down"). This only matters for a brand-new device/browser
+  // that has never loaded te_rules before -- an existing signed-in
+  // browser keeps whatever the user already customized here.
   entry: {
     label: 'Entry Rules',
     icon: '🎯',
     color: 'var(--accent)',
     rules: [
-      { id: 'e1', text: 'Wait for confirmed setup on higher timeframe before entering', enabled: true },
-      { id: 'e2', text: 'Entry must align with overall trend direction', enabled: true },
-      { id: 'e3', text: 'No entry during first 15 min of session open', enabled: true },
+      { id: 'e1', text: 'First check daily candle if it is bullish buy', enabled: true },
+      { id: 'e2', text: '2nd entry same direction same size but enter only when 15m POI goes bullish', enabled: true },
+      { id: 'e3', text: 'Enter at any POI but not in the beginning of the block but near the of the end', enabled: true },
+      { id: 'e4', text: 'i think better look for trend on weekly if it is on POI so i can know where market will go', enabled: true },
     ]
   },
   exit: {
@@ -1855,9 +1864,7 @@ const DEFAULT_RULES = {
     icon: '🚪',
     color: 'var(--green)',
     rules: [
-      { id: 'x1', text: 'Always set stop-loss before entering the trade', enabled: true },
-      { id: 'x2', text: 'Take partial profit at 1:2 risk-reward ratio', enabled: true },
-      { id: 'x3', text: 'Move stop to breakeven after 1:1 reached', enabled: true },
+      { id: 'x1', text: 'If 1st trade goes well then i must cut in profit of the next POI always 15M', enabled: true },
     ]
   },
   risk: {
@@ -1865,10 +1872,10 @@ const DEFAULT_RULES = {
     icon: '🛡️',
     color: 'var(--red)',
     rules: [
-      { id: 'r1', text: 'Risk no more than 0.25% of account per trade', enabled: true },
-      { id: 'r2', text: 'Maximum 3 open trades at the same time', enabled: true },
-      { id: 'r3', text: 'Stop trading after 2 consecutive losses in a session', enabled: true },
-      { id: 'r4', text: 'No averaging down on losing positions', enabled: true },
+      { id: 'r1', text: 'when i am in losing running trade i must not close one win or one lost i must at least close 1 win same time with 1 lost that will stop at zero os with a small profit never close in lost', enabled: true },
+      { id: 'r2', text: 'I only trade gold', enabled: true },
+      { id: 'r3', text: 'so better check market from weekly and daily to know where it is going must do', enabled: true },
+      { id: 'r4', text: 'don\'t look on under daily for ex 4h for direction , direction only weekly and daily full stop', enabled: true },
     ]
   },
   session: {
@@ -1876,9 +1883,7 @@ const DEFAULT_RULES = {
     icon: '🧠',
     color: 'var(--purple)',
     rules: [
-      { id: 's1', text: 'Trade only during London or New York session', enabled: true },
-      { id: 's2', text: 'No trading when feeling emotional or tired', enabled: true },
-      { id: 's3', text: 'Review previous day\'s trades before starting', enabled: true },
+      { id: 's1', text: 'This is a kind of saving because the profit is very small don\'t rely on this account', enabled: true },
     ]
   }
 };
@@ -5218,12 +5223,30 @@ if ('serviceWorker' in navigator) {
       ((c.explanation && c.explanation.length) ? c.explanation.map(function (line) { return '<div class="review-item">' + escapeHtml(line) + '</div>'; }).join('') : '');
   }
 
-  function renderConfidenceMeter(confidence) {
-    // Simplified to match the active H4->M15 OB strategy: just its own
-    // pass-rate confidence (0/33/67/100 -- how many of its own steps
-    // were confirmed), not the old 7-category Classic Bias breakdown.
+  function renderConfidenceMeter(validation) {
+    // Relabeled from "Setup confidence" to "Rule Completion" -- the
+    // number was always just "how many of the strategy's own 4 steps
+    // (Daily Bias / M15 POI / Entry Timing / Add-On) passed", never a
+    // probabilistic ML confidence, so naming it "confidence" invited
+    // confusion with the separate AI Confidence Model win-probability
+    // feature. This now shows the literal fraction plus, when still
+    // WAIT, which specific rule is blocking it -- the same information
+    // the rule checklist already has, just surfaced here too for a
+    // quick glance.
     const el = document.getElementById('ai-ca-confidence-output');
-    el.innerHTML = confidenceBar('Setup confidence', confidence == null ? 0 : confidence);
+    const checks = (validation && validation.ruleChecks) || [];
+    const total = checks.length || 4;
+    const passed = checks.filter(function (c) { return c.status === 'PASSED'; }).length;
+    const pct = (validation && validation.confidence != null) ? validation.confidence : Math.round((passed / total) * 100);
+    const isValid = validation && validation.tradeStatus === 'VALID';
+    const blocking = checks.find(function (c) { return c.status === 'FAILED'; });
+    const reasonHtml = (!isValid && blocking)
+      ? '<div style="font-size:0.8rem;margin-top:0.3rem;"><strong style="color:var(--red);">WAIT</strong> — Reason: ' + escapeHtml(blocking.detail || blocking.rule) + '</div>'
+      : '';
+    el.innerHTML =
+      confidenceBar('Rule Completion', pct) +
+      '<div style="font-size:0.8rem;color:var(--text-secondary);">' + passed + ' of ' + total + ' rules passed</div>' +
+      reasonHtml;
   }
 
   function parseCandlesTextarea(raw) {
@@ -5312,7 +5335,7 @@ if ('serviceWorker' in navigator) {
       renderChartAnalysis(data.analysis);
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
-      renderConfidenceMeter(data.validation.confidence);
+      renderConfidenceMeter(data.validation);
       resultsEl.style.display = 'block';
     } catch (e) {
       errorEl.textContent = 'Error: ' + e.message;
@@ -5612,7 +5635,7 @@ if ('serviceWorker' in navigator) {
       renderChartAnalysis(data.analysis);
       renderTradeValidation(data.validation);
       renderAiCoach(data.coach);
-      renderConfidenceMeter(data.validation.confidence);
+      renderConfidenceMeter(data.validation);
       resultsEl.style.display = 'block';
       statusEl.textContent = 'Last updated: ' + new Date(data.updatedAt).toLocaleString();
     } catch (e) {
@@ -5889,12 +5912,19 @@ if ('serviceWorker' in navigator) {
       const isValid = r.tradeStatus === 'VALID';
       const direction = r.data.validation && r.data.validation.direction ? r.data.validation.direction : '';
       const v = r.data.validation || {};
-      // Show the STRATEGY'S OWN reasoning (which H4/M15 order block got
+      // Show the STRATEGY'S OWN reasoning (which M15 order block got
       // touched, or what it's still waiting for) instead of a generic
       // trend/confidence line -- that line never changed meaningfully
       // between strategies since it came from an unrelated summary score.
       const reasons = isValid ? (v.reasonsPassed || []) : (v.reasonsFailed || []);
       const reasonLine = reasons.length ? reasons.map(escapeHtml).join('<br>') : '';
+      // Same "Rule Completion" framing as the Chart Analysis Engine's
+      // confidence meter, so a WAIT here reads the same way everywhere:
+      // how many of the 4 steps passed, not a bare INVALID label.
+      const checks = v.ruleChecks || [];
+      const totalRules = checks.length || 4;
+      const passedRules = checks.filter(function (c) { return c.status === 'PASSED'; }).length;
+      const ruleCompletionLine = checks.length ? (passedRules + ' of ' + totalRules + ' rules passed') : '';
       let detailLine = '';
       if (isValid) {
         const parts = [];
@@ -5906,8 +5936,9 @@ if ('serviceWorker' in navigator) {
       }
       return '<div class="review-item" style="' + (isValid ? 'border-color:var(--green);background:var(--green-dim);' : '') + '">' +
         '<strong style="' + (isValid ? 'color:var(--green);' : '') + '">' + label + ' &mdash; ' + escapeHtml(r.tradeStatus) + (direction ? ' (' + escapeHtml(direction) + ')' : '') + '</strong>' +
+        (ruleCompletionLine ? '<br><span style="font-size:0.76rem;color:var(--text-muted);">' + ruleCompletionLine + '</span>' : '') +
         (detailLine ? '<br><span style="font-size:0.78rem;color:var(--text-secondary);">' + detailLine + '</span>' : '') +
-        (reasonLine ? '<br><span style="font-size:0.76rem;color:' + (isValid ? 'var(--text-secondary)' : 'var(--text-muted)') + ';">' + reasonLine + '</span>' : '') +
+        (reasonLine ? '<br><span style="font-size:0.76rem;color:' + (isValid ? 'var(--text-secondary)' : 'var(--text-muted)') + ';">' + (isValid ? '' : 'Reason: ') + reasonLine + '</span>' : '') +
         '</div>';
     }).join('') || '<div style="font-size:0.82rem;color:var(--text-muted);">No results.</div>';
 
