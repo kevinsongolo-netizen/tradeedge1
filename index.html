@@ -3784,7 +3784,7 @@ function parseExcelData(jsonData) {
       
       if (!openDate || !closeDate) continue;
       
-      const symbol = (row[colMap.symbol] || '').toString().replace(/micro$/i, '').toUpperCase();
+      const symbol = (row[colMap.symbol] || '').toString().toUpperCase();
       const type = (row[colMap.type] || '').toString().toLowerCase();
       const volume = parseFloat(row[colMap.volume]) || 0;
       const entry = parseFloat(row[colMap.price]) || 0;
@@ -4099,7 +4099,7 @@ function parseMarkdownTable(text) {
 
       trades.push({
         date: date,
-        pair: symbol.replace(/micro$/i, '').toUpperCase(),
+        pair: symbol.toUpperCase(),
         direction: type === 'buy' ? 'buy' : 'sell',
         asset: asset,
         lots: volume,
@@ -4175,8 +4175,12 @@ function parseTradeParts(parts) {
 
     if (!pair) return null;
 
-    // Clean up symbol name for display (remove "micro" suffix but keep for detection)
-    const displayPair = pair.replace(/micro$/i, '').toUpperCase();
+    // Sprint 18 note: this used to strip a trailing "micro" suffix
+    // (e.g. "GOLDmicro" -> "GOLD"), but that hid the trader's real
+    // broker symbol -- MT5 shows "GOLDmicro" as its own instrument, and
+    // the Live Feed / Pre-Trade Check matching is symbol-exact, so the
+    // journal should record exactly what MT5 calls it.
+    const displayPair = pair.toUpperCase();
 
     // Helper function to parse prices with spaces and commas
     function parsePrice(priceStr) {
