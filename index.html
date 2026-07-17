@@ -3094,7 +3094,7 @@ function renderJournal() {
     const notes = e.notes || e.worked || e.failed || '—';
     const lots = e.lots ? parseFloat(e.lots).toFixed(2) : '—';
 
-    return `<tr>
+    return `<tr onclick="if (!['SELECT','BUTTON','OPTION'].includes(event.target.tagName)) openJournalModal('${e.id}')" style="cursor:pointer;" title="Click to edit this trade (set Exit Price, Exit Reason, etc.)">
       <td style="font-family:'DM Mono',monospace;font-size:0.82rem;color:var(--text-secondary)">${formatDate(e.date)}</td>
       <td style="font-weight:600">${e.pair}</td>
       <td><span class="badge badge-${e.direction || ''}">${(e.direction || '—').toUpperCase()}</span></td>
