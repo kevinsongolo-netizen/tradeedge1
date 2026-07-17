@@ -4799,9 +4799,44 @@ if ('serviceWorker' in navigator) {
         return;
       }
 
-      let added = 0, updated = 0;
+      // Best-effort match for a screenshot-logged open trade (Pre-Trade
+      // Check / Chart Analysis Engine "Log as open trade") against an
+      // incoming MT5-reported trade for the same real position -- so its
+      // exit price / P&L / R:R / exit reason fill in automatically the
+      // moment MT5 reports the close, instead of creating a second,
+      // duplicate row that still needs the exit typed in by hand. Only
+      // matches entries that aren't already someone else's mt5- row and
+      // don't already have their own exit (a manually-closed entry is
+      // assumed final and never overwritten by this).
+      function findManualMatch(journal, t) {
+        const tEntry = parseFloat(t.entry);
+        if (isNaN(tEntry)) return -1;
+        const tolerance = Math.abs(tEntry) * 0.005; // 0.5% -- covers vision-read rounding, not a different trade
+        let tDate = null;
+        if (t.date) { const d = new Date(t.date); if (!isNaN(d)) tDate = d; }
+        return journal.findIndex(function (j) {
+          if (j.id && j.id.indexOf('mt5-') === 0) return false;
+          if (j.exit !== null && j.exit !== undefined && j.exit !== '') return false;
+          if ((j.pair || '').toUpperCase() !== (t.pair || '').toUpperCase()) return false;
+          if ((j.direction || '').toLowerCase() !== (t.direction || '').toLowerCase()) return false;
+          const jEntry = parseFloat(j.entry);
+          if (isNaN(jEntry) || Math.abs(jEntry - tEntry) > tolerance) return false;
+          if (tDate && j.date) {
+            const jd = new Date(j.date);
+            if (!isNaN(jd) && Math.abs(jd - tDate) > 2 * 24 * 60 * 60 * 1000) return false; // >2 days apart -- not the same trade
+          }
+          return true;
+        });
+      }
+
+      let added = 0, updated = 0, linked = 0;
       items.forEach(function (t) {
-        const idx = journal.findIndex(function (j) { return j.id === t.id; });
+        let idx = journal.findIndex(function (j) { return j.id === t.id; });
+        let isNewLink = false;
+        if (idx < 0) {
+          idx = findManualMatch(journal, t);
+          if (idx >= 0) isNewLink = true;
+        }
         const fields = {
           date: t.date, pair: t.pair, direction: t.direction, asset: t.asset,
           entry: t.entry, exit: t.exit, sl: t.sl, tp: t.tp, lots: t.lots,
@@ -4815,7 +4850,15 @@ if ('serviceWorker' in navigator) {
           Object.keys(fields).forEach(function (k) {
             if (fields[k] !== null && fields[k] !== undefined) existing[k] = fields[k];
           });
-          updated++;
+          if (isNewLink) {
+            // Adopt the MT5 id so future syncs update this exact row
+            // directly (by-id match above) instead of re-matching by
+            // pair/entry/date every time.
+            existing.id = t.id;
+            linked++;
+          } else {
+            updated++;
+          }
         } else {
           journal.unshift(Object.assign({ id: t.id, workedTags: [], failedTags: [] }, fields));
           added++;
@@ -4825,9 +4868,12 @@ if ('serviceWorker' in navigator) {
       if (typeof saveJournal === 'function') saveJournal();
       if (typeof renderJournal === 'function') renderJournal();
 
-      statusEl.textContent = added + ' new, ' + updated + ' updated (of ' + items.length + ' MT5-linked trades checked).';
+      statusEl.textContent = added + ' new, ' + updated + ' updated, ' + linked + ' linked to an existing logged trade (of ' + items.length + ' MT5-linked trades checked).';
       if (added > 0 && typeof showToast === 'function') {
         showToast(added + ' new trade' + (added === 1 ? '' : 's') + ' imported from MT5.', 'success');
+      }
+      if (linked > 0 && typeof showToast === 'function') {
+        showToast(linked + ' logged trade' + (linked === 1 ? '' : 's') + ' auto-updated with MT5\'s exit price.', 'success');
       }
     } catch (e) {
       statusEl.textContent = 'Error: ' + e.message;
