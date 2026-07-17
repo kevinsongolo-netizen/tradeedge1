@@ -4487,29 +4487,15 @@ if ('serviceWorker' in navigator) {
 
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Live Opportunity Scanner</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches every symbol/timeframe you have an MT5 EA running on and tells you the moment any of them has a VALID setup &mdash; no more flipping between charts one at a time. Requires the Live MT5 Feed EA to already be attached and pushing for each asset you add here.</p>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches your own open trades (logged from a screenshot, not yet closed) against live MT5 price and flags when price is closing in on or has crossed your SL/TP. No rules, no verdict &mdash; just where price sits relative to your own plan. Requires the Live MT5 Feed EA to be attached and pushing price for that symbol.</p>
 
-    <div class="form-row" style="align-items:end;">
-      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Symbol</label>
-        <input type="text" class="form-input" id="ai-scan-add-symbol" placeholder="e.g. GBPUSD" list="ai-live-symbol-list" autocomplete="off">
-      </div>
-      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Timeframe</label>
-        <input type="text" class="form-input" id="ai-scan-add-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
-      </div>
-      <div class="form-group" style="margin-bottom:0;">
-        <button class="btn btn-primary" onclick="aiScannerAdd()">Add to scanner</button>
-      </div>
-    </div>
-
-    <div id="ai-scan-list" style="margin-top:1rem;"></div>
-
-    <div style="display:flex;align-items:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="aiScannerScanNow()">Scan now</button>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="aiScannerScanNow()">Check now</button>
       <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
-        <input type="checkbox" id="ai-scan-autorefresh"> Auto-scan every 30 seconds
+        <input type="checkbox" id="ai-scan-autorefresh"> Auto-check every 30 seconds
       </label>
       <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
-        <input type="checkbox" id="ai-scan-notify"> Pop a browser notification on a new VALID setup
+        <input type="checkbox" id="ai-scan-notify"> Pop a browser notification when a trade needs attention
       </label>
     </div>
     <div id="ai-scan-status" style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);"></div>
@@ -4556,139 +4542,24 @@ if ('serviceWorker' in navigator) {
 
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Runs your official Personal Averaging Strategy (Daily Bias + M15 Point-of-Interest, no fixed stop loss or take profit) — same engine as Chart Analysis Engine, Live Feed, Scanner, and Backtest. When it's VALID, also shows ML win probability and similar past trades as extra context (never the decision-maker).</p>
-    <div class="form-row" style="margin-bottom:0.75rem;">
-      <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
-        <input type="radio" name="ai-pt-mode" value="live" id="ai-pt-mode-live" checked style="width:auto;"> Use Live Feed (from MT5, no pasting)
-      </label>
-      <label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.85rem;">
-        <input type="radio" name="ai-pt-mode" value="candles" id="ai-pt-mode-candles" style="width:auto;"> Paste candle data
-      </label>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
+    <div class="form-group">
+      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
+      <input type="file" class="form-input" id="ai-pt-file" accept="image/png,image/jpeg,image/webp">
     </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" value="GOLDmicro" list="ai-ca-pair-list" autocomplete="off"></div>
-      <div class="form-group"><label class="form-label">Session (optional)</label>
-        <select class="form-select" id="ai-pt-session"><option value="">— Select —</option><option value="Asian">Asian</option><option value="London">London</option><option value="Overlap">Overlap</option><option value="New York">New York</option></select>
-      </div>
-    </div>
-    <div id="ai-pt-live-fields" class="form-row">
-      <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-pt-live-symbol" placeholder="e.g. EURUSD, GER40Cash" value="GOLDmicro" list="ai-live-symbol-list" autocomplete="off"></div>
-      <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-pt-live-timeframe" placeholder="e.g. H4" value="M15" list="ai-live-timeframe-list" autocomplete="off"></div>
-    </div>
-    <div id="ai-pt-live-addon-note" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.75rem;">Rule 3's 2nd, same-size add-on entry is detected automatically from your MT5 EA (it checks every push whether you already have a losing open position on this symbol) -- no need to tell it manually in Live Feed mode.</div>
-    <div id="ai-pt-candle-fields" style="display:none;">
-      <div class="form-group">
-        <label class="form-label">Daily candle data — one bar per line: time,open,high,low,close</label>
-        <textarea class="form-input" id="ai-pt-daily-candles" rows="4" placeholder="Paste your most recent Daily candles here, oldest first -- only the LAST one matters for the bullish/bearish bias check."></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
-        <textarea class="form-input" id="ai-pt-m15-candles" rows="6" placeholder="Paste 10+ M15 candles here, oldest first."></textarea>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-pt-open-trade-in-loss" style="width:auto;">
-        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss (checks for rule 3's 2nd, same-size add-on entry)</label>
-      </div>
-    </div>
-    <button class="btn btn-primary" onclick="aiRunPretrade()">Check this trade</button>
+    <button class="btn btn-primary" onclick="aiRunPretrade()">Check this setup</button>
+    <button class="btn" onclick="aiLogPretradeSetup()">Log as open trade</button>
+    <div id="ai-pretrade-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
     <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Chart Analysis Engine</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Reads a chart (screenshot or price data), validates it against your SMC rules, and explains the reasoning behind every call.</p>
-
-    <div class="form-row" style="margin-bottom:0.75rem;">
-      <div class="form-group" style="display:flex;align-items:center;gap:1.5rem;">
-        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-          <input type="radio" name="ai-ca-mode" value="image" id="ai-ca-mode-image" checked style="width:auto;"> Chart screenshot
-        </label>
-        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-          <input type="radio" name="ai-ca-mode" value="candles" id="ai-ca-mode-candles" style="width:auto;"> Paste candle data
-        </label>
-        <label style="display:flex;align-items:center;gap:0.4rem;font-weight:normal;text-transform:none;letter-spacing:normal;">
-          <input type="radio" name="ai-ca-mode" value="live" id="ai-ca-mode-live" style="width:auto;"> Live feed (from MT5)
-        </label>
-      </div>
-    </div>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Upload any chart screenshot &mdash; the AI reads the pair, timeframe, your pending order (Entry/SL/TP/R:R), and the OB/FVG/BOS/CHoCH your indicator marked, then compares it to your own trade history. No pass/fail rules &mdash; just "have I seen this before, and how did it go?"</p>
 
     <div class="form-group">
-      <label class="form-label">Pair / Instrument (used when saving to journal)</label>
-      <input type="text" class="form-input" id="ai-ca-pair" placeholder="e.g. GER40Cash, EURUSD, BTCUSD" list="ai-ca-pair-list" autocomplete="off">
-      <datalist id="ai-ca-pair-list">
-        <option value="GBPUSD"></option>
-        <option value="EURUSD"></option>
-        <option value="USDCAD"></option>
-        <option value="AUDUSD"></option>
-        <option value="NZDUSD"></option>
-        <option value="GBPJPY"></option>
-        <option value="GOLD"></option>
-        <option value="US100Cash"></option>
-        <option value="US30Cash"></option>
-        <option value="GER40Cash"></option>
-        <option value="BTCUSD"></option>
-      </datalist>
-    </div>
-
-    <div id="ai-ca-image-input">
-      <div class="form-group">
-        <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
-        <input type="file" class="form-input" id="ai-ca-file" accept="image/png,image/jpeg,image/webp">
-      </div>
-    </div>
-
-    <div id="ai-ca-candles-input" style="display:none;">
-      <div class="form-group">
-        <label class="form-label">Candle data (e.g. H4) — one bar per line: time,open,high,low,close</label>
-        <textarea class="form-input" id="ai-ca-candles" rows="6" placeholder="2024-01-01T00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-01T01:00,1.0960,1.0975,1.0955,1.0970"></textarea>
-        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">Shown as the display/context chart above -- your active strategy's own entry decision uses the Daily + M15 candles below instead.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Daily candle data (required for your Personal Averaging Strategy's Daily Bias rule)</label>
-        <textarea class="form-input" id="ai-ca-daily-candles" rows="4" placeholder="Paste your most recent Daily candles here, oldest first -- only the LAST one matters (bullish daily candle = BUY setups only, bearish = SELL only)."></textarea>
-      </div>
-      <div class="form-group">
-        <label class="form-label">M15 candle data (required to find the entry trigger)</label>
-        <textarea class="form-input" id="ai-ca-m15-candles" rows="4" placeholder="Paste M15 candles in the same format -- your active strategy checks these for a matching order-block/FVG touch, near the end of the zone, to trigger entry."></textarea>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-ca-open-trade-in-loss" style="width:auto;">
-        <label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">I already have a first position open on this pair, and it's currently floating in a loss</label>
-      </div>
-    </div>
-
-    <div id="ai-ca-live-input" style="display:none;">
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label>
-          <input type="text" class="form-input" id="ai-live-symbol" placeholder="e.g. EURUSD, GER40Cash" list="ai-live-symbol-list" autocomplete="off">
-          <datalist id="ai-live-symbol-list">
-            <option value="GBPUSD"></option>
-            <option value="EURUSD"></option>
-            <option value="USDCAD"></option>
-            <option value="AUDUSD"></option>
-            <option value="NZDUSD"></option>
-            <option value="GBPJPY"></option>
-            <option value="GOLD"></option>
-            <option value="US100Cash"></option>
-            <option value="US30Cash"></option>
-            <option value="GER40Cash"></option>
-          </datalist>
-        </div>
-        <div class="form-group"><label class="form-label">Timeframe</label>
-          <input type="text" class="form-input" id="ai-live-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
-          <datalist id="ai-live-timeframe-list">
-            <option value="M15"></option>
-            <option value="M30"></option>
-            <option value="H1"></option>
-            <option value="H4"></option>
-            <option value="D1"></option>
-          </datalist>
-        </div>
-      </div>
-      <div class="form-group" style="display:flex;align-items:center;gap:0.5rem;">
-        <input type="checkbox" id="ai-live-autorefresh" style="width:auto;"><label class="form-label" style="margin:0;text-transform:none;letter-spacing:normal;">Auto-refresh every 30 seconds</label>
-      </div>
-      <div id="ai-live-status" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Requires the MT5 EA to be running and pushing data — see the setup guide.</div>
+      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
+      <input type="file" class="form-input" id="ai-ca-file" accept="image/png,image/jpeg,image/webp">
     </div>
 
     <button class="btn btn-primary" onclick="aiRunChartAnalysis()">Analyze chart</button>
@@ -4696,20 +4567,8 @@ if ('serviceWorker' in navigator) {
 
     <div id="ai-ca-results" style="margin-top:1.25rem;display:none;">
       <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">Chart Analysis</h4>
-        <div id="ai-ca-analysis-output"></div>
-      </div>
-      <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">Trade Validation</h4>
-        <div id="ai-ca-validation-output"></div>
-      </div>
-      <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">AI Coach</h4>
-        <div id="ai-ca-coach-output"></div>
-      </div>
-      <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">Setup Confidence</h4>
-        <div id="ai-ca-confidence-output"></div>
+        <h4 style="margin-bottom:0.75rem;">Setup &amp; Insight</h4>
+        <div id="ai-ca-output"></div>
       </div>
       <button class="btn btn-primary" onclick="aiSaveChartAnalysisToJournal()">Save this trade to journal</button>
     </div>
@@ -4740,28 +4599,6 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Backtest</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Replays your Personal Averaging Strategy (Daily Bias + M15 Order Block/FVG, no fixed SL/TP) against real historical candles — Daily and M15 walked together in sync, exactly like live trading.</p>
-    <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:0.75rem;">Both candle series need REAL date/times (e.g. <code>2024-01-01T00:00:00</code>), not just labels — the two timeframes are aligned by actual time to avoid any lookahead.</div>
-    <div class="form-group">
-      <label class="form-label">Daily candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-bt-daily-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0965,1.0940,1.0960&#10;2024-01-02T00:00:00,1.0960,1.0975,1.0955,1.0970"></textarea>
-    </div>
-    <div class="form-group">
-      <label class="form-label">M15 candle data — one bar per line: time,open,high,low,close</label>
-      <textarea class="form-input" id="ai-bt-m15-candles" rows="6" placeholder="2024-01-01T00:00:00,1.0950,1.0958,1.0945,1.0955&#10;2024-01-01T00:15:00,1.0955,1.0962,1.0950,1.0960"></textarea>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Lookback window (Daily)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback-daily" placeholder="30" value="30"></div>
-      <div class="form-group"><label class="form-label">Lookback window (M15)</label><input type="number" step="1" class="form-input" id="ai-bt-lookback-m15" placeholder="100" value="100"></div>
-      <div class="form-group"><label class="form-label">Target net profit per unit</label><input type="number" step="any" class="form-input" id="ai-bt-target-profit" placeholder="0" value="0"></div>
-    </div>
-    <button class="btn btn-primary" onclick="aiRunBacktest()">Run backtest</button>
-    <div id="ai-bt-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-    <div id="ai-bt-output" style="margin-top:1rem;"></div>
-  </div>
-
-  <div class="card" style="margin-top:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">AI Confidence Model (Machine Learning)</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Learns win/loss patterns from your own logged trade history and powers the win-probability shown in Pre-Trade Check. Needs a real sample of closed trades first &mdash; this card will always tell you honestly whether it's ready, never guess with too little data.</p>
     <button class="btn" onclick="aiCheckMlReadiness()">Check my trade data</button>
@@ -4780,8 +4617,6 @@ if ('serviceWorker' in navigator) {
 <script>
 (function () {
   const STORAGE_KEY = 'te_ai_backend_url';
-  let lastChartAnalysisResult = null;
-  let liveAutoRefreshTimer = null;
 
   function getApiBase() {
     return localStorage.getItem(STORAGE_KEY) || '';
@@ -5030,88 +4865,127 @@ if ('serviceWorker' in navigator) {
     }
   }
 
-  function renderPretradeResult(data) {
-    const statusColor = data.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
-    const finalResult = data.recommendation === 'ADD'
-      ? ('ADD-ON — ' + (data.direction || '').toUpperCase())
-      : (data.recommendation === 'TAKE' ? ('TAKE — ' + (data.direction || '').toUpperCase()) : 'WAIT');
-    let html =
-      '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(data.tradeStatus) + '</strong> — ' + escapeHtml(data.recommendation) + (data.direction ? ' (' + escapeHtml(data.direction) + ')' : '') + '</div>' +
-      renderRuleChecklist(data.ruleChecks, finalResult) +
-      (data.suggestedEntry != null
-        ? '<div class="review-item"><strong>Suggested entry:</strong> ' + data.suggestedEntry + ' — no fixed stop loss or take profit by design.</div>'
-        : '') +
-      (data.breakEvenPrice != null
-        ? '<div class="review-item"><strong>Break-even/small-profit exit:</strong> ' + data.breakEvenPrice.toFixed(5) + '</div>'
-        : '');
+  // Sprint 20 -- screenshot-first workflow. Both Pre-Trade Check and
+  // Chart Analysis Engine call the same backend endpoint
+  // (/chart/full-analysis/image) and render the same shape:
+  // {extraction, insight, meta}. Neither ever shows a verdict --
+  // "insight" is a plain-language comparison against your own trade
+  // history (similarity %, win/loss counts, risk notes), never a
+  // VALID/INVALID/TAKE/WAIT gate. The decision stays with you.
+  let lastSetupExtraction = null;
 
-    if (data.tradeStatus === 'VALID') {
-      const mlLine = data.mlAvailable
-        ? '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">ML-powered · model ' + escapeHtml(data.modelVersion || '?') + ' (' + escapeHtml(data.algorithm || '') + ')' + (data.winProbability != null ? ' · win probability ' + (data.winProbability * 100).toFixed(0) + '%' : '') + '</div>'
-        : '<div class="review-item" style="font-size:0.78rem;color:var(--text-muted);">Rule-based estimate only (no trained ML model yet) &mdash; see "AI Confidence Model" below to train one.</div>';
-      html +=
-        '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;"><em style="font-size:0.76rem;color:var(--text-muted);">Extra context below — informational only, never overrides the decision above:</em></div>' +
-        '<div class="review-item">ML recommendation: ' + escapeHtml(data.mlRecommendation || '—') + ' · Risk: ' + escapeHtml(data.riskLevel) + ' · AI confidence: ' + escapeHtml(data.aiConfidence) + '</div>' +
-        mlLine +
-        (data.strengths.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.strengths.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
-        (data.weaknesses.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.weaknesses.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
-        (data.historicalReasons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.historicalReasons.map(escapeHtml).join('<br>') + '</div>' : '');
+  function mapPoiTypeToOption(poiType) {
+    if (!poiType) return '';
+    const t = poiType.toLowerCase();
+    if (t.indexOf('bullish') !== -1 && t.indexOf('fvg') !== -1) return 'Bullish FVG';
+    if (t.indexOf('bearish') !== -1 && t.indexOf('fvg') !== -1) return 'Bearish FVG';
+    if (t.indexOf('bullish') !== -1 && (t.indexOf('order block') !== -1 || t.indexOf(' ob') !== -1)) return 'Bullish OB';
+    if (t.indexOf('bearish') !== -1 && (t.indexOf('order block') !== -1 || t.indexOf(' ob') !== -1)) return 'Bearish OB';
+    if (t.indexOf('premium') !== -1) return 'Premium';
+    if (t.indexOf('discount') !== -1) return 'Discount';
+    if (t.indexOf('equilibrium') !== -1) return 'Equilibrium';
+    return 'Other';
+  }
+
+  function renderSetupInsight(targetElId, data) {
+    const el = document.getElementById(targetElId);
+    if (!el) return;
+    const extraction = data.extraction || {};
+    const insight = data.insight || {};
+    const meta = data.meta || {};
+    const fmt = function (v) { return (v === null || v === undefined) ? '—' : v; };
+
+    const placeholderBanner = meta.isPlaceholder
+      ? '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Example data — no vision API key configured yet on the backend. This is not a real chart read.</div>'
+      : '';
+
+    const directionColor = extraction.orderDirection === 'BUY' ? 'var(--green)' : (extraction.orderDirection === 'SELL' ? 'var(--red)' : '');
+    const extractionHtml =
+      '<div class="review-item">' +
+        '<strong>' + escapeHtml(fmt(extraction.pair)) + '</strong>' +
+        (extraction.timeframe ? ' &middot; ' + escapeHtml(extraction.timeframe) : '') +
+        (extraction.orderDirection && extraction.orderDirection !== 'NONE' ? ' &middot; <strong style="color:' + directionColor + ';">' + escapeHtml(extraction.orderDirection) + '</strong>' : '') +
+        (extraction.orderType ? ' (' + escapeHtml(extraction.orderType) + ')' : '') +
+      '</div>' +
+      '<div class="review-item">Entry ' + fmt(extraction.entry) + ' &middot; SL ' + fmt(extraction.stopLoss) + ' &middot; TP ' + fmt(extraction.takeProfit) + (extraction.riskReward != null ? ' &middot; R:R ' + extraction.riskReward : '') + '</div>' +
+      (extraction.poiType ? '<div class="review-item">' + escapeHtml(extraction.poiType) + (extraction.latestEvent ? ' &middot; ' + escapeHtml(extraction.latestEvent) : '') + '</div>' : '') +
+      '<div class="review-item" style="font-size:0.8rem;color:var(--text-secondary);">' + escapeHtml(fmt(extraction.trend)) + ' trend &middot; ' + escapeHtml(fmt(extraction.premiumDiscount)) + ' &middot; read confidence ' + fmt(extraction.readConfidence) + '%</div>';
+
+    let statsHtml = '';
+    if (insight.hasEnoughHistory && insight.sampleSize > 0) {
+      statsHtml = confidenceBar('Historical win rate (similar setups)', Math.round(insight.winRate || 0)) +
+        '<div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">' + insight.wins + ' won, ' + insight.losses + ' lost' + (insight.breakeven ? ', ' + insight.breakeven + ' breakeven' : '') + ' out of ' + insight.sampleSize + ' similar trades</div>';
     }
-    return html;
+
+    const narrativeHtml = (insight.narrative || []).map(function (line) {
+      return '<div class="review-item">' + escapeHtml(line) + '</div>';
+    }).join('');
+
+    const riskNotesHtml = (insight.riskNotes || []).map(function (line) {
+      return '<div class="review-item" style="color:#e0a800;">' + escapeHtml(line) + '</div>';
+    }).join('');
+
+    const topSimilarHtml = (insight.topSimilar && insight.topSimilar.length)
+      ? '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;">' +
+          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">CLOSEST MATCHES</div>' +
+          insight.topSimilar.map(function (s) {
+            const color = s.outcome === 'Win' ? 'var(--green)' : (s.outcome === 'Loss' ? 'var(--red)' : 'var(--text-muted)');
+            return '<div style="font-size:0.82rem;padding:0.2rem 0;">' + Math.round(s.similarity) + '% similar — <strong style="color:' + color + ';">' + escapeHtml(s.outcome || '') + '</strong>' + (s.date ? ' (' + escapeHtml(s.date) + ')' : '') + (s.pnl != null ? ' — $' + Number(s.pnl).toFixed(2) : '') + '</div>';
+          }).join('') +
+        '</div>'
+      : '';
+
+    el.innerHTML = placeholderBanner + extractionHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml;
+  }
+
+  async function analyzeSetupScreenshot(fileInputId, targetElId, errorElId) {
+    const errorEl = errorElId ? document.getElementById(errorElId) : null;
+    if (errorEl) errorEl.textContent = '';
+    const fileInput = document.getElementById(fileInputId);
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) { if (errorEl) errorEl.textContent = 'Choose a chart screenshot first.'; return null; }
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
+      lastSetupExtraction = data.extraction;
+      renderSetupInsight(targetElId, data);
+      return data;
+    } catch (e) {
+      if (errorEl) errorEl.textContent = 'Error: ' + e.message;
+      return null;
+    }
+  }
+
+  function fillJournalFromExtraction(extraction) {
+    if (!extraction) {
+      if (typeof showToast === 'function') showToast('Analyze a screenshot first.', 'error');
+      return;
+    }
+    if (typeof openJournalModal === 'function') openJournalModal();
+    const setVal = function (id, value) {
+      const el = document.getElementById(id);
+      if (el && value !== null && value !== undefined && value !== '') el.value = value;
+    };
+    setVal('j-pair', extraction.pair);
+    const dir = (extraction.orderDirection || '').toLowerCase();
+    if (dir === 'buy' || dir === 'sell') setVal('j-direction', dir);
+    setVal('j-entry', extraction.entry);
+    setVal('j-sl', extraction.stopLoss);
+    setVal('j-tp', extraction.takeProfit);
+    setVal('j-rr', extraction.riskReward);
+    const poiOption = mapPoiTypeToOption(extraction.poiType);
+    if (poiOption) setVal('j-poi', poiOption);
+    setVal('j-notes', 'Logged from a screenshot-read setup' + (extraction.timeframe ? ' (' + extraction.timeframe + ').' : '.'));
+    if (typeof showToast === 'function') showToast('Trade pre-filled from your screenshot — review and Save.', 'success');
   }
 
   async function runPretradeCheck() {
-    const el = document.getElementById('ai-pretrade-output');
-    const pair = document.getElementById('ai-pt-pair').value.trim();
-    const session = document.getElementById('ai-pt-session').value;
-    if (!pair) { el.textContent = 'Enter a pair first.'; return; }
+    await analyzeSetupScreenshot('ai-pt-file', 'ai-pretrade-output', 'ai-pretrade-error');
+  }
 
-    const useLive = document.getElementById('ai-pt-mode-live').checked;
-
-    if (useLive) {
-      const symbol = document.getElementById('ai-pt-live-symbol').value.trim();
-      const timeframe = document.getElementById('ai-pt-live-timeframe').value.trim();
-      if (!symbol || !timeframe) { el.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).'; return; }
-      el.textContent = 'Checking... (if the backend has been idle it can take up to a minute to wake up -- this is normal, let it keep trying)';
-      try {
-        const body = { pair: pair, session: session || null, symbol: symbol, timeframe: timeframe };
-        const data = await apiFetch('/api/v1/assistant/pretrade-analysis-live', { method: 'POST', body: JSON.stringify(body) });
-        el.innerHTML = renderPretradeResult(data);
-      } catch (e) {
-        el.textContent = 'Error: ' + e.message + (e.message.indexOf('404') === 0 ? ' — make sure your MT5 EA is attached and has pushed at least one update for this symbol/timeframe.' : '');
-      }
-      return;
-    }
-
-    const dailyRaw = document.getElementById('ai-pt-daily-candles').value;
-    const m15Raw = document.getElementById('ai-pt-m15-candles').value;
-    const openTradeInLoss = document.getElementById('ai-pt-open-trade-in-loss').checked;
-    if (!dailyRaw.trim()) { el.textContent = 'Paste Daily candle data first.'; return; }
-    if (!m15Raw.trim()) { el.textContent = 'Paste M15 candle data too.'; return; }
-
-    let dailyCandles, m15Candles;
-    try {
-      dailyCandles = parseCandlesTextarea(dailyRaw);
-      m15Candles = parseCandlesTextarea(m15Raw);
-    } catch (e) {
-      el.textContent = e.message;
-      return;
-    }
-
-    el.textContent = 'Checking... (if the backend has been idle it can take up to a minute to wake up -- this is normal, let it keep trying)';
-    try {
-      const body = {
-        pair: pair,
-        session: session || null,
-        dailyCandles: dailyCandles,
-        m15Candles: m15Candles,
-        openTradeInLoss: openTradeInLoss,
-      };
-      const data = await apiFetch('/api/v1/assistant/pretrade-analysis', { method: 'POST', body: JSON.stringify(body) });
-      el.innerHTML = renderPretradeResult(data);
-    } catch (e) {
-      el.textContent = 'Error: ' + e.message;
-    }
+  function logPretradeSetup() {
+    fillJournalFromExtraction(lastSetupExtraction);
   }
 
   async function apiFetchMultipart(path, opts = {}) {
@@ -5180,76 +5054,6 @@ if ('serviceWorker' in navigator) {
     return '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;">' + rows + finalHtml + '</div>';
   }
 
-  function renderChartAnalysis(a) {
-    const el = document.getElementById('ai-ca-analysis-output');
-    const placeholderBanner = a.isPlaceholder
-      ? '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Example data — screenshot reading isn\'t connected to a live vision AI yet. Use candle data for a real read, or add a vision API key on the backend.</div>'
-      : '';
-    const zonesHtml = (a.zones || []).map(function (z) {
-      return '<div style="font-size:0.85rem;">' + escapeHtml(z.kind) + ' ' + escapeHtml(z.zoneType) + ': ' + z.low + ' – ' + z.high + (z.mitigated ? ' (mitigated)' : '') + '</div>';
-    }).join('');
-    el.innerHTML =
-      placeholderBanner +
-      '<div class="review-item"><strong>Trend:</strong> ' + escapeHtml(a.trend) + ' &nbsp; <strong>Bias:</strong> ' + escapeHtml(a.bias) + ' &nbsp; <strong>Read confidence:</strong> ' + a.confidence + '%</div>' +
-      '<div class="review-item"><strong>Structure:</strong> ' + escapeHtml(a.structure) + '</div>' +
-      '<div class="review-item"><strong>Price context:</strong> ' + escapeHtml(a.currentPriceContext) + ' (' + escapeHtml(a.premiumDiscount) + ')</div>' +
-      '<div class="review-item"><strong>Liquidity:</strong> ' + escapeHtml(a.liquidity) + '</div>' +
-      (a.latestEvent ? '<div class="review-item"><strong>Latest event:</strong> ' + escapeHtml(a.latestEvent) + '</div>' : '') +
-      (a.fvgStatus ? '<div class="review-item"><strong>FVG:</strong> ' + escapeHtml(a.fvgStatus) + '</div>' : '') +
-      (zonesHtml ? '<div class="review-item"><strong>Zones:</strong><br>' + zonesHtml + '</div>' : '') +
-      ((a.notes && a.notes.length) ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + a.notes.map(escapeHtml).join('<br>') + '</div>' : '');
-  }
-
-  function renderTradeValidation(v) {
-    const el = document.getElementById('ai-ca-validation-output');
-    const statusColor = v.tradeStatus === 'VALID' ? 'var(--green)' : 'var(--red)';
-    const finalResult = v.recommendation === 'ADD'
-      ? ('ADD-ON — ' + (v.direction || '').toUpperCase())
-      : (v.recommendation === 'TAKE' ? ('TAKE — ' + (v.direction || '').toUpperCase()) : 'WAIT');
-    el.innerHTML =
-      '<div class="review-item"><strong style="color:' + statusColor + ';">' + escapeHtml(v.tradeStatus) + '</strong> — ' + escapeHtml(v.recommendation) + (v.direction ? ' (' + escapeHtml(v.direction) + ')' : '') + '</div>' +
-      renderRuleChecklist(v.ruleChecks, finalResult) +
-      (v.suggestedEntry != null
-        ? '<div class="review-item"><strong>Suggested entry:</strong> ' + v.suggestedEntry + ' — this strategy runs with no fixed stop loss or take profit by design.</div>'
-        : '') +
-      (v.breakEvenPrice != null
-        ? '<div class="review-item"><strong>Break-even/small-profit exit:</strong> ' + v.breakEvenPrice.toFixed(5) + ' — rule 4\'s "never close in lost", made concrete.</div>'
-        : '');
-  }
-
-  function renderAiCoach(c) {
-    const el = document.getElementById('ai-ca-coach-output');
-    el.innerHTML =
-      '<div class="review-item"><strong>' + escapeHtml(c.headline) + '</strong> — recommendation: ' + escapeHtml(c.recommendation) + '</div>' +
-      ((c.explanation && c.explanation.length) ? c.explanation.map(function (line) { return '<div class="review-item">' + escapeHtml(line) + '</div>'; }).join('') : '');
-  }
-
-  function renderConfidenceMeter(validation) {
-    // Relabeled from "Setup confidence" to "Rule Completion" -- the
-    // number was always just "how many of the strategy's own 4 steps
-    // (Daily Bias / M15 POI / Entry Timing / Add-On) passed", never a
-    // probabilistic ML confidence, so naming it "confidence" invited
-    // confusion with the separate AI Confidence Model win-probability
-    // feature. This now shows the literal fraction plus, when still
-    // WAIT, which specific rule is blocking it -- the same information
-    // the rule checklist already has, just surfaced here too for a
-    // quick glance.
-    const el = document.getElementById('ai-ca-confidence-output');
-    const checks = (validation && validation.ruleChecks) || [];
-    const total = checks.length || 4;
-    const passed = checks.filter(function (c) { return c.status === 'PASSED'; }).length;
-    const pct = (validation && validation.confidence != null) ? validation.confidence : Math.round((passed / total) * 100);
-    const isValid = validation && validation.tradeStatus === 'VALID';
-    const blocking = checks.find(function (c) { return c.status === 'FAILED'; });
-    const reasonHtml = (!isValid && blocking)
-      ? '<div style="font-size:0.8rem;margin-top:0.3rem;"><strong style="color:var(--red);">WAIT</strong> — Reason: ' + escapeHtml(blocking.detail || blocking.rule) + '</div>'
-      : '';
-    el.innerHTML =
-      confidenceBar('Rule Completion', pct) +
-      '<div style="font-size:0.8rem;color:var(--text-secondary);">' + passed + ' of ' + total + ' rules passed</div>' +
-      reasonHtml;
-  }
-
   function parseCandlesTextarea(raw) {
     return raw.trim().split('\n').map(function (line) { return line.trim(); }).filter(Boolean).map(function (line) {
       const parts = line.split(',').map(function (s) { return s.trim(); });
@@ -5267,128 +5071,12 @@ if ('serviceWorker' in navigator) {
     const resultsEl = document.getElementById('ai-ca-results');
     errorEl.textContent = '';
     resultsEl.style.display = 'none';
-
-    const mode = document.getElementById('ai-ca-mode-live').checked
-      ? 'live'
-      : (document.getElementById('ai-ca-mode-image').checked ? 'image' : 'candles');
-
-    if (mode === 'live') {
-      await loadLiveLatest();
-      return;
-    }
-
-    // Classic Bias inputs (direction override, planned/min R:R, M15 BOS/
-    // CHOCH/entry checkboxes, liquidity sweep) were removed from the UI
-    // entirely per your request -- your only rule is H4->M15 OB touch,
-    // which needs none of these. Sent as harmless defaults below so the
-    // (unrelated) screenshot-analysis request shape doesn't change.
-    const direction = null;
-    const rr = NaN;
-    const minRr = NaN;
-    const hasM15Bos = false;
-    const hasM15Choch = false;
-    const hasM15Entry = false;
-    const hasSweep = false;
-
-    try {
-      let data;
-      if (mode === 'image') {
-        const fileInput = document.getElementById('ai-ca-file');
-        const file = fileInput.files && fileInput.files[0];
-        if (!file) { errorEl.textContent = 'Choose a chart screenshot first.'; return; }
-        const form = new FormData();
-        form.append('file', file);
-        if (direction) form.append('direction', direction);
-        if (!isNaN(rr)) form.append('planned_rr', String(rr));
-        if (!isNaN(minRr)) form.append('min_rr', String(minRr));
-        form.append('has_m15_bos', String(hasM15Bos));
-        form.append('has_m15_choch', String(hasM15Choch));
-        form.append('has_m15_entry_confirmation', String(hasM15Entry));
-        form.append('has_liquidity_sweep', String(hasSweep));
-        data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
-      } else {
-        const raw = document.getElementById('ai-ca-candles').value;
-        if (!raw.trim()) { errorEl.textContent = 'Paste at least one candle first.'; return; }
-        const candles = parseCandlesTextarea(raw);
-        const m15Raw = document.getElementById('ai-ca-m15-candles').value;
-        const dailyRaw = document.getElementById('ai-ca-daily-candles').value;
-        const openTradeInLoss = document.getElementById('ai-ca-open-trade-in-loss').checked;
-        const body = {
-          candles: candles,
-          direction: direction,
-          plannedRr: isNaN(rr) ? null : rr,
-          minRr: isNaN(minRr) ? 2.0 : minRr,
-          hasM15Bos: hasM15Bos,
-          hasM15Choch: hasM15Choch,
-          hasM15EntryConfirmation: hasM15Entry,
-          hasLiquiditySweep: hasSweep,
-          openTradeInLoss: openTradeInLoss,
-        };
-        if (m15Raw && m15Raw.trim()) {
-          body.m15Candles = parseCandlesTextarea(m15Raw);
-        }
-        if (dailyRaw && dailyRaw.trim()) {
-          body.dailyCandles = parseCandlesTextarea(dailyRaw);
-        }
-        data = await apiFetch('/api/v1/chart/full-analysis/candles', { method: 'POST', body: JSON.stringify(body) });
-      }
-      lastChartAnalysisResult = data;
-      renderChartAnalysis(data.analysis);
-      renderTradeValidation(data.validation);
-      renderAiCoach(data.coach);
-      renderConfidenceMeter(data.validation);
-      resultsEl.style.display = 'block';
-    } catch (e) {
-      errorEl.textContent = 'Error: ' + e.message;
-    }
-  }
-
-  function mapZoneTypeToPoi(zoneType) {
-    if (!zoneType) return '';
-    if (zoneType === 'Order Block') return 'Order Block';
-    if (zoneType === 'Fair Value Gap') return 'Fair Value Gap (FVG)';
-    return 'Other';
+    const data = await analyzeSetupScreenshot('ai-ca-file', 'ai-ca-output', 'ai-ca-error');
+    if (data) resultsEl.style.display = 'block';
   }
 
   function saveChartAnalysisToJournal() {
-    if (!lastChartAnalysisResult) {
-      if (typeof showToast === 'function') showToast('Run "Analyze chart" first.', 'error');
-      return;
-    }
-    const pairInput = document.getElementById('ai-ca-pair');
-    const pair = pairInput ? pairInput.value.trim() : '';
-    if (!pair) {
-      if (typeof showToast === 'function') showToast('Enter a pair/instrument first.', 'error');
-      return;
-    }
-    const { analysis, validation, coach } = lastChartAnalysisResult;
-
-    if (typeof openJournalModal === 'function') openJournalModal();
-
-    const setVal = function (id, value) {
-      const el = document.getElementById(id);
-      if (el && value !== null && value !== undefined && value !== '') el.value = value;
-    };
-
-    setVal('j-pair', pair);
-    const dir = (validation.direction || analysis.bias || '').toLowerCase();
-    if (dir === 'buy' || dir === 'sell') setVal('j-direction', dir);
-    setVal('j-entry', validation.suggestedEntry);
-    setVal('j-sl', validation.stopLoss);
-    setVal('j-tp', validation.takeProfit);
-    setVal('j-rr', validation.riskReward);
-    const poi = mapZoneTypeToPoi(analysis.entryZone && analysis.entryZone.zoneType);
-    if (poi) setVal('j-poi', poi);
-
-    const noteLines = [];
-    const sourceLabel = analysis.isPlaceholder
-      ? 'example/placeholder data'
-      : (analysis.source === 'screenshot' ? 'AI vision read' : 'candle data read');
-    noteLines.push('Chart Analysis Engine (' + sourceLabel + '): ' + validation.tradeStatus + ' — ' + validation.recommendation + '.');
-    if (coach && coach.explanation) noteLines.push.apply(noteLines, coach.explanation);
-    setVal('j-notes', noteLines.join(' '));
-
-    if (typeof showToast === 'function') showToast('Trade pre-filled from Chart Analysis — review and Save.', 'success');
+    fillJournalFromExtraction(lastSetupExtraction);
   }
 
   async function runTradeReview() {
@@ -5544,119 +5232,6 @@ if ('serviceWorker' in navigator) {
       '</div>';
   }
 
-  async function runBacktest() {
-    const errorEl = document.getElementById('ai-bt-error');
-    const outputEl = document.getElementById('ai-bt-output');
-    errorEl.textContent = '';
-    outputEl.innerHTML = '';
-
-    const rawDaily = document.getElementById('ai-bt-daily-candles').value;
-    const rawM15 = document.getElementById('ai-bt-m15-candles').value;
-    if (!rawDaily.trim()) { errorEl.textContent = 'Paste Daily candle data first.'; return; }
-    if (!rawM15.trim()) { errorEl.textContent = 'Paste M15 candle data too (50+ bars for a meaningful sample) — this strategy needs both timeframes to replay your rules.'; return; }
-
-    let dailyCandles, m15Candles;
-    try {
-      dailyCandles = parseCandlesTextarea(rawDaily);
-      m15Candles = parseCandlesTextarea(rawM15);
-    } catch (e) {
-      errorEl.textContent = e.message;
-      return;
-    }
-
-    const lookbackDaily = parseInt(document.getElementById('ai-bt-lookback-daily').value, 10);
-    const lookbackM15 = parseInt(document.getElementById('ai-bt-lookback-m15').value, 10);
-    const targetProfit = parseFloat(document.getElementById('ai-bt-target-profit').value);
-
-    const body = {
-      candles: dailyCandles, // required by the API shape; unused by the active strategy
-      dailyCandles: dailyCandles,
-      m15Candles: m15Candles,
-      lookbackWindowDaily: isNaN(lookbackDaily) ? 30 : lookbackDaily,
-      lookbackWindowM15: isNaN(lookbackM15) ? 100 : lookbackM15,
-      targetNetProfitPerUnit: isNaN(targetProfit) ? 0 : targetProfit,
-    };
-
-    outputEl.textContent = 'Running backtest...';
-    try {
-      const data = await apiFetch('/api/v1/backtest/run', { method: 'POST', body: JSON.stringify(body) });
-      const rows = (data.cyclesDetail || []).map(function (c) {
-        const color = c.outcome === 'CLOSED' ? 'var(--green)' : 'var(--text-muted)';
-        const entriesStr = c.entries.map(function (e) { return e.price; }).join(' → ');
-        return '<div style="font-size:0.78rem;padding:0.25rem 0;border-bottom:1px solid var(--border);">' +
-          escapeHtml(c.direction) + ' @ ' + entriesStr + (c.addOnUsed ? ' (add-on used)' : '') +
-          ' <span style="color:' + color + ';font-weight:600;">' + escapeHtml(c.outcome) + '</span>' +
-          ' · net ' + c.netPnlPerUnit.toFixed(5) + '/unit · MAE ' + c.maxAdverseExcursion.toFixed(5) + ' · ' + c.barsHeld + ' bars' +
-          '</div>';
-      }).join('');
-      outputEl.innerHTML =
-        '<div class="review-item"><strong>' + data.cyclesTotal + ' cycles</strong> — ' + data.cyclesClosed + ' closed, ' + data.cyclesOpen + ' still open</div>' +
-        '<div class="review-item">Add-on used in ' + data.addOnRatePct + '% of cycles' + (data.avgBarsHeld != null ? ' · Average ' + data.avgBarsHeld + ' M15 bars held' : '') + (data.maxAdverseExcursion != null ? ' · Worst floating loss reached: ' + data.maxAdverseExcursion.toFixed(5) + ' per unit' : '') + '</div>' +
-        (data.notes.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.notes.map(escapeHtml).join('<br>') + '</div>' : '') +
-        (rows ? '<div style="margin-top:0.75rem;max-height:260px;overflow-y:auto;">' + rows + '</div>' : '');
-    } catch (e) {
-      errorEl.textContent = 'Error: ' + e.message;
-      outputEl.textContent = '';
-    }
-  }
-
-  async function loadLiveLatest() {
-    const statusEl = document.getElementById('ai-live-status');
-    const errorEl = document.getElementById('ai-ca-error');
-    const resultsEl = document.getElementById('ai-ca-results');
-    errorEl.textContent = '';
-
-    const symbol = document.getElementById('ai-live-symbol').value.trim();
-    const timeframe = document.getElementById('ai-live-timeframe').value.trim();
-    if (!symbol || !timeframe) {
-      statusEl.textContent = 'Enter the symbol and timeframe your MT5 EA is pushing (must match exactly).';
-      return;
-    }
-    // Remember the last symbol/timeframe used so it's pre-filled next visit --
-    // no need to retype it every time.
-    localStorage.setItem('te_ai_live_symbol', symbol);
-    localStorage.setItem('te_ai_live_timeframe', timeframe);
-
-    const base = getApiBase();
-    if (!base) { errorEl.textContent = 'Set your backend URL above first.'; return; }
-
-    try {
-      const res = await fetch(base + '/api/v1/live/latest?symbol=' + encodeURIComponent(symbol) + '&timeframe=' + encodeURIComponent(timeframe));
-      if (res.status === 404) {
-        statusEl.textContent = 'No live data yet for ' + symbol + ' ' + timeframe + ' — make sure your MT5 EA is attached, running, and has pushed at least one update.';
-        resultsEl.style.display = 'none';
-        return;
-      }
-      if (!res.ok) {
-        const text = await res.text().catch(function () { return ''; });
-        throw new Error(res.status + ': ' + text.slice(0, 200));
-      }
-      const data = await res.json();
-      lastChartAnalysisResult = data;
-      renderChartAnalysis(data.analysis);
-      renderTradeValidation(data.validation);
-      renderAiCoach(data.coach);
-      renderConfidenceMeter(data.validation);
-      resultsEl.style.display = 'block';
-      statusEl.textContent = 'Last updated: ' + new Date(data.updatedAt).toLocaleString();
-    } catch (e) {
-      errorEl.textContent = 'Error: ' + e.message;
-    }
-  }
-
-  function startLiveAutoRefresh() {
-    stopLiveAutoRefresh();
-    loadLiveLatest();
-    liveAutoRefreshTimer = setInterval(loadLiveLatest, 30000);
-  }
-
-  function stopLiveAutoRefresh() {
-    if (liveAutoRefreshTimer) {
-      clearInterval(liveAutoRefreshTimer);
-      liveAutoRefreshTimer = null;
-    }
-  }
-
   function formatMlError(e) {
     // apiFetch()'s Error.message is "STATUS: <raw response body>" -- try
     // to pull the clean {"error":{"message":...}} envelope out of it so
@@ -5749,217 +5324,92 @@ if ('serviceWorker' in navigator) {
     }
   }
 
-  // === Sprint 16: Live Opportunity Scanner ================================
-  // Watches a user-maintained list of {symbol, timeframe} pairs by polling
-  // the existing GET /live/latest endpoint for each one (no new backend
-  // endpoint needed) and surfaces which ones currently have a VALID setup.
-  const SCAN_LIST_KEY = 'te_ai_scan_list';
+  // === Sprint 20: Live Opportunity Scanner (open-trade alerts) ============
+  // Repurposed around your screenshot-logged open trades rather than a
+  // user-maintained watch list: pulls every trade you've logged with no
+  // exit yet, compares each one's SL/TP against the latest live price for
+  // that pair, and flags anything approaching or past its level. No rules,
+  // no verdict -- just where price sits relative to your own plan.
   const SCAN_NOTIFY_KEY = 'te_ai_scan_notify';
   const SCAN_AUTOREFRESH_KEY = 'te_ai_scan_autorefresh';
   let scanAutoRefreshTimer = null;
-  let scanLastStatus = {}; // "SYMBOL|TIMEFRAME" -> last known tradeStatus, to detect new VALIDs
+  let scanLastStatus = {}; // tradeId -> last known status, to detect newly-needs-attention alerts
 
-  function getScanList() {
-    try {
-      const raw = localStorage.getItem(SCAN_LIST_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function setScanList(list) {
-    localStorage.setItem(SCAN_LIST_KEY, JSON.stringify(list));
-  }
-
-  function renderScanList() {
-    const el = document.getElementById('ai-scan-list');
-    const list = getScanList();
-    if (!list.length) {
-      el.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);">No assets added yet &mdash; add each symbol/timeframe your MT5 EA is pushing.</div>';
-      return;
-    }
-    el.innerHTML = list.map(function (item, i) {
-      return '<span class="tag-btn" style="margin:0 0.4rem 0.4rem 0;display:inline-flex;align-items:center;gap:0.4rem;">' +
-        escapeHtml(item.symbol) + ' &middot; ' + escapeHtml(item.timeframe) +
-        ' <span onclick="aiScannerRemove(' + i + ')" style="cursor:pointer;color:var(--red);">&times;</span></span>';
-    }).join('');
-  }
-
-  window.aiScannerAdd = function () {
-    const symbolInput = document.getElementById('ai-scan-add-symbol');
-    const timeframeInput = document.getElementById('ai-scan-add-timeframe');
-    const symbol = symbolInput.value.trim();
-    const timeframe = timeframeInput.value.trim();
-    if (!symbol || !timeframe) return;
-    const list = getScanList();
-    const exists = list.some(function (item) {
-      return item.symbol.toLowerCase() === symbol.toLowerCase() && item.timeframe.toLowerCase() === timeframe.toLowerCase();
-    });
-    if (!exists) {
-      list.push({ symbol: symbol, timeframe: timeframe });
-      setScanList(list);
-      renderScanList();
-    }
-    symbolInput.value = '';
-    timeframeInput.value = '';
-  };
-
-  window.aiScannerRemove = function (index) {
-    const list = getScanList();
-    list.splice(index, 1);
-    setScanList(list);
-    renderScanList();
-  };
-
-  function scanConfidence(data) {
-    return data && data.coach && data.coach.confidence && data.coach.confidence.overall != null
-      ? data.coach.confidence.overall
-      : null;
-  }
-
-  // Rough price formatter for the Scanner card -- no per-symbol digit
-  // metadata on the frontend, so this just guesses decimals from
-  // magnitude (indices/crypto ~2, forex ~5), same convention the rest
-  // of the site already uses for display-only price rounding.
   function fmtLevel(v) {
     if (v === null || v === undefined || isNaN(v)) return '';
     const decimals = Math.abs(v) >= 100 ? 2 : 5;
     return Number(v).toFixed(decimals);
   }
 
+  const SCAN_STATUS_COLOR = {
+    SL_HIT: 'var(--red)',
+    TP_HIT: 'var(--green)',
+    NEAR_SL: 'var(--yellow, #d9a441)',
+    NEAR_TP: 'var(--yellow, #d9a441)',
+    MONITORING: 'var(--text-secondary)',
+  };
+
   window.aiScannerScanNow = async function () {
-    const list = getScanList();
     const statusEl = document.getElementById('ai-scan-status');
     const resultsEl = document.getElementById('ai-scan-results');
-    if (!list.length) {
-      statusEl.textContent = 'Add at least one symbol/timeframe above first.';
-      resultsEl.innerHTML = '';
-      return;
-    }
     const base = getApiBase();
     if (!base) { statusEl.textContent = 'Set your backend URL above first.'; return; }
 
-    statusEl.textContent = 'Scanning ' + list.length + ' asset(s)...';
-    // Render's free tier puts the backend to sleep after inactivity --
-    // waking it up can take 30-50s, and every symbol's request fired in
-    // the same batch can fail (connection refused, or a 502/503 while
-    // it's still booting) until it's fully up. Retrying with real waits
-    // (matching apiFetch's COLD_START_RETRY_DELAYS_MS) covers that
-    // instead of showing "couldn't fetch" for most of the list on the
-    // first scan after idle time.
-    async function fetchLiveWithRetry(url, attempt) {
-      attempt = attempt || 0;
-      try {
-        const res = await fetch(url);
-        const retryable = res.status === 502 || res.status === 503 || res.status === 504;
-        if (retryable && attempt < COLD_START_RETRY_DELAYS_MS.length) {
-          await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
-          return fetchLiveWithRetry(url, attempt + 1);
-        }
-        return res;
-      } catch (e) {
-        if (attempt >= COLD_START_RETRY_DELAYS_MS.length) throw e;
-        await new Promise(function (r) { setTimeout(r, COLD_START_RETRY_DELAYS_MS[attempt]); });
-        return fetchLiveWithRetry(url, attempt + 1);
+    statusEl.textContent = 'Checking your open trades...';
+    try {
+      const data = await apiFetch('/api/v1/live/open-trade-alerts');
+      const alerts = data.alerts || [];
+      if (!alerts.length) {
+        resultsEl.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);">No open trades logged yet, or no live price is available for them. Log a trade from a screenshot (Pre-Trade Check or Chart Analysis Engine) and make sure the MT5 EA is pushing price for that symbol.</div>';
+        statusEl.textContent = 'Last checked: ' + new Date().toLocaleTimeString();
+        return;
       }
-    }
 
-    const rows = await Promise.all(list.map(async function (item) {
-      const key = item.symbol.toUpperCase() + '|' + item.timeframe.toUpperCase();
-      try {
-        const url = base + '/api/v1/live/latest?symbol=' + encodeURIComponent(item.symbol) + '&timeframe=' + encodeURIComponent(item.timeframe);
-        const res = await fetchLiveWithRetry(url, 0);
-        if (res.status === 404) {
-          return { item: item, key: key, state: 'no-data' };
-        }
-        if (!res.ok) {
-          return { item: item, key: key, state: 'error' };
-        }
-        const data = await res.json();
-        const tradeStatus = data.validation && data.validation.tradeStatus ? data.validation.tradeStatus : 'UNKNOWN';
-        return { item: item, key: key, state: 'ok', data: data, tradeStatus: tradeStatus };
-      } catch (e) {
-        return { item: item, key: key, state: 'error' };
-      }
-    }));
+      const newlyAttention = alerts.filter(function (a) {
+        return a.needsAttention && scanLastStatus[a.tradeId] !== a.status;
+      });
+      alerts.forEach(function (a) { scanLastStatus[a.tradeId] = a.status; });
 
-    // Detect newly-VALID assets (weren't VALID on the previous scan) for
-    // the notification/toast, before re-sorting for display.
-    const newlyValid = rows.filter(function (r) {
-      return r.state === 'ok' && r.tradeStatus === 'VALID' && scanLastStatus[r.key] !== 'VALID';
-    });
-    rows.forEach(function (r) {
-      if (r.state === 'ok') scanLastStatus[r.key] = r.tradeStatus;
-    });
+      // Needs-attention first, then monitoring, alphabetical within each group.
+      const sorted = alerts.slice().sort(function (a, b) {
+        const aRank = a.needsAttention ? 0 : 1;
+        const bRank = b.needsAttention ? 0 : 1;
+        if (aRank !== bRank) return aRank - bRank;
+        return (a.pair || '').localeCompare(b.pair || '');
+      });
 
-    // VALID first, then everything else, alphabetical within each group.
-    rows.sort(function (a, b) {
-      const aValid = a.state === 'ok' && a.tradeStatus === 'VALID' ? 0 : 1;
-      const bValid = b.state === 'ok' && b.tradeStatus === 'VALID' ? 0 : 1;
-      if (aValid !== bValid) return aValid - bValid;
-      return a.key.localeCompare(b.key);
-    });
-
-    resultsEl.innerHTML = rows.map(function (r) {
-      const label = escapeHtml(r.item.symbol) + ' &middot; ' + escapeHtml(r.item.timeframe);
-      if (r.state === 'no-data') {
-        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; no live data yet (check the EA is attached and running).</div>';
-      }
-      if (r.state === 'error') {
-        return '<div class="review-item" style="color:var(--text-muted);">' + label + ' &mdash; couldn\'t fetch right now (if your backend has been idle a while, it may just be waking up -- try Scan now again in ~30s).</div>';
-      }
-      const isValid = r.tradeStatus === 'VALID';
-      const direction = r.data.validation && r.data.validation.direction ? r.data.validation.direction : '';
-      const v = r.data.validation || {};
-      // Show the STRATEGY'S OWN reasoning (which M15 order block got
-      // touched, or what it's still waiting for) instead of a generic
-      // trend/confidence line -- that line never changed meaningfully
-      // between strategies since it came from an unrelated summary score.
-      const reasons = isValid ? (v.reasonsPassed || []) : (v.reasonsFailed || []);
-      const reasonLine = reasons.length ? reasons.map(escapeHtml).join('<br>') : '';
-      // Same "Rule Completion" framing as the Chart Analysis Engine's
-      // confidence meter, so a WAIT here reads the same way everywhere:
-      // how many of the 4 steps passed, not a bare INVALID label.
-      const checks = v.ruleChecks || [];
-      const totalRules = checks.length || 4;
-      const passedRules = checks.filter(function (c) { return c.status === 'PASSED'; }).length;
-      const ruleCompletionLine = checks.length ? (passedRules + ' of ' + totalRules + ' rules passed') : '';
-      let detailLine = '';
-      if (isValid) {
+      resultsEl.innerHTML = sorted.map(function (a) {
+        const color = SCAN_STATUS_COLOR[a.status] || 'var(--text-secondary)';
+        const label = escapeHtml(a.pair) + (a.direction ? ' (' + escapeHtml(a.direction) + ')' : '');
         const parts = [];
-        if (v.suggestedEntry != null) parts.push('Entry: ' + fmtLevel(v.suggestedEntry));
-        if (v.stopLoss != null) parts.push('SL: ' + fmtLevel(v.stopLoss));
-        if (v.takeProfit != null) parts.push('TP: ' + fmtLevel(v.takeProfit));
-        if (v.riskReward != null) parts.push('R:R 1:' + Number(v.riskReward).toFixed(2));
-        detailLine = parts.join(' &middot; ');
-      }
-      return '<div class="review-item" style="' + (isValid ? 'border-color:var(--green);background:var(--green-dim);' : '') + '">' +
-        '<strong style="' + (isValid ? 'color:var(--green);' : '') + '">' + label + ' &mdash; ' + escapeHtml(r.tradeStatus) + (direction ? ' (' + escapeHtml(direction) + ')' : '') + '</strong>' +
-        (ruleCompletionLine ? '<br><span style="font-size:0.76rem;color:var(--text-muted);">' + ruleCompletionLine + '</span>' : '') +
-        (detailLine ? '<br><span style="font-size:0.78rem;color:var(--text-secondary);">' + detailLine + '</span>' : '') +
-        (reasonLine ? '<br><span style="font-size:0.76rem;color:' + (isValid ? 'var(--text-secondary)' : 'var(--text-muted)') + ';">' + (isValid ? '' : 'Reason: ') + reasonLine + '</span>' : '') +
-        '</div>';
-    }).join('') || '<div style="font-size:0.82rem;color:var(--text-muted);">No results.</div>';
+        if (a.entry != null) parts.push('Entry: ' + fmtLevel(a.entry));
+        if (a.sl != null) parts.push('SL: ' + fmtLevel(a.sl));
+        if (a.tp != null) parts.push('TP: ' + fmtLevel(a.tp));
+        if (a.currentPrice != null) parts.push('Current: ' + fmtLevel(a.currentPrice));
+        return '<div class="review-item" style="' + (a.needsAttention ? 'border-color:' + color + ';' : '') + '">' +
+          '<strong style="color:' + color + ';">' + label + ' &mdash; ' + escapeHtml(a.status) + '</strong>' +
+          '<br><span style="font-size:0.78rem;color:var(--text-secondary);">' + parts.join(' &middot; ') + '</span>' +
+          (a.message ? '<br><span style="font-size:0.76rem;color:var(--text-muted);">' + escapeHtml(a.message) + '</span>' : '') +
+          '</div>';
+      }).join('');
 
-    statusEl.textContent = 'Last scanned: ' + new Date().toLocaleTimeString();
+      statusEl.textContent = 'Last checked: ' + new Date().toLocaleTimeString();
 
-    if (newlyValid.length) {
-      const msg = newlyValid.map(function (r) {
-        return r.item.symbol + ' ' + r.item.timeframe + (r.data.validation.direction ? ' (' + r.data.validation.direction + ')' : '');
-      }).join(', ');
-      if (typeof showToast === 'function') showToast('VALID setup found: ' + msg, 'success');
-      const notifyEnabled = document.getElementById('ai-scan-notify') && document.getElementById('ai-scan-notify').checked;
-      if (notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        newlyValid.forEach(function (r) {
-          try {
-            new Notification('TradeEdge: VALID setup', {
-              body: r.item.symbol + ' ' + r.item.timeframe + ' is ready to trade.',
-            });
-          } catch (e) { /* ignore -- some browsers restrict this outside a user gesture */ }
-        });
+      if (newlyAttention.length) {
+        const msg = newlyAttention.map(function (a) { return a.pair + ' ' + a.status; }).join(', ');
+        if (typeof showToast === 'function') showToast('Needs attention: ' + msg, 'success');
+        const notifyEnabled = document.getElementById('ai-scan-notify') && document.getElementById('ai-scan-notify').checked;
+        if (notifyEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          newlyAttention.forEach(function (a) {
+            try {
+              new Notification('TradeEdge: ' + a.status, { body: (a.message || (a.pair + ' needs attention')) });
+            } catch (e) { /* ignore -- some browsers restrict this outside a user gesture */ }
+          });
+        }
       }
+    } catch (e) {
+      statusEl.textContent = '';
+      resultsEl.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);">Couldn\'t fetch right now (if your backend has been idle a while, it may just be waking up -- try Check now again in ~30s).</div>';
     }
   };
 
@@ -5985,13 +5435,12 @@ if ('serviceWorker' in navigator) {
   window.aiImportMt5Trades = importMt5Trades;
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiRunPretrade = runPretradeCheck;
+  window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
   window.aiSaveChartAnalysisToJournal = saveChartAnalysisToJournal;
   window.aiRunTradeReview = runTradeReview;
   window.aiRunSessionDetect = runSessionDetect;
   window.aiRunNewsCheck = runNewsCheck;
-  window.aiRunBacktest = runBacktest;
-  window.aiLoadLiveLatest = loadLiveLatest;
   window.aiCheckMlReadiness = aiCheckMlReadiness;
   window.aiTrainMlModel = aiTrainMlModel;
 
@@ -5999,64 +5448,6 @@ if ('serviceWorker' in navigator) {
     const input = document.getElementById('ai-api-base-input');
     if (input) input.value = getApiBase();
     aiLoadActiveMlModel();
-
-    // Pre-fill the last symbol/timeframe used on the live feed, so it's not
-    // retyped every visit.
-    const liveSymbolInput = document.getElementById('ai-live-symbol');
-    const liveTimeframeInput = document.getElementById('ai-live-timeframe');
-    const savedLiveSymbol = localStorage.getItem('te_ai_live_symbol');
-    const savedLiveTimeframe = localStorage.getItem('te_ai_live_timeframe');
-    if (liveSymbolInput && savedLiveSymbol) liveSymbolInput.value = savedLiveSymbol;
-    if (liveTimeframeInput && savedLiveTimeframe) liveTimeframeInput.value = savedLiveTimeframe;
-
-    const modeImage = document.getElementById('ai-ca-mode-image');
-    const modeCandles = document.getElementById('ai-ca-mode-candles');
-    const modeLive = document.getElementById('ai-ca-mode-live');
-    const imageInput = document.getElementById('ai-ca-image-input');
-    const candlesInput = document.getElementById('ai-ca-candles-input');
-    const liveInput = document.getElementById('ai-ca-live-input');
-    function syncCaMode() {
-      const current = modeLive.checked ? 'live' : (modeImage.checked ? 'image' : 'candles');
-      imageInput.style.display = current === 'image' ? '' : 'none';
-      candlesInput.style.display = current === 'candles' ? '' : 'none';
-      liveInput.style.display = current === 'live' ? '' : 'none';
-      stopLiveAutoRefresh();
-      if (current !== 'live') {
-        const cb = document.getElementById('ai-live-autorefresh');
-        if (cb) cb.checked = false;
-      }
-    }
-    if (modeImage && modeCandles && modeLive) {
-      modeImage.addEventListener('change', syncCaMode);
-      modeCandles.addEventListener('change', syncCaMode);
-      modeLive.addEventListener('change', syncCaMode);
-      syncCaMode();
-    }
-    const autoRefreshCb = document.getElementById('ai-live-autorefresh');
-    if (autoRefreshCb) {
-      autoRefreshCb.addEventListener('change', function () {
-        if (autoRefreshCb.checked) startLiveAutoRefresh(); else stopLiveAutoRefresh();
-      });
-    }
-
-    // Pre-Trade Check mode toggle (Live Feed vs paste candles) -- same
-    // show/hide pattern as Chart Analysis Engine's mode radios above.
-    const ptModeLive = document.getElementById('ai-pt-mode-live');
-    const ptModeCandles = document.getElementById('ai-pt-mode-candles');
-    const ptLiveFields = document.getElementById('ai-pt-live-fields');
-    const ptCandleFields = document.getElementById('ai-pt-candle-fields');
-    const ptLiveAddonNote = document.getElementById('ai-pt-live-addon-note');
-    function syncPtMode() {
-      const live = ptModeLive.checked;
-      if (ptLiveFields) ptLiveFields.style.display = live ? '' : 'none';
-      if (ptCandleFields) ptCandleFields.style.display = live ? 'none' : '';
-      if (ptLiveAddonNote) ptLiveAddonNote.style.display = live ? '' : 'none';
-    }
-    if (ptModeLive && ptModeCandles) {
-      ptModeLive.addEventListener('change', syncPtMode);
-      ptModeCandles.addEventListener('change', syncPtMode);
-      syncPtMode();
-    }
 
     // Sprint 17: MT5 auto-journal import init
     const mt5ImportAutoCb = document.getElementById('ai-mt5-import-autocheck');
@@ -6072,8 +5463,7 @@ if ('serviceWorker' in navigator) {
     // Sprint 18: LIVE Margin Buffer init -- starts immediately, no button
     startMarginBufferLive();
 
-    // Sprint 16: Live Opportunity Scanner init
-    renderScanList();
+    // Sprint 20: Live Opportunity Scanner init (open-trade alerts)
     const scanNotifyCb = document.getElementById('ai-scan-notify');
     if (scanNotifyCb) {
       scanNotifyCb.checked = localStorage.getItem(SCAN_NOTIFY_KEY) === '1';
