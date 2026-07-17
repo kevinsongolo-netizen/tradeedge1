@@ -4965,7 +4965,17 @@ if ('serviceWorker' in navigator) {
     }
   }
 
-  function fillJournalFromExtraction(extraction) {
+  // Session dropdown only offers Asian/London/New York/London-NY Overlap/
+  // Other -- map the session-detect engine's primarySession onto those
+  // exact values (it already uses the same strings by design, except
+  // "Between sessions" which doesn't correspond to any of them).
+  function mapPrimarySessionToOption(primarySession) {
+    if (!primarySession) return '';
+    if (['Asian', 'London', 'New York', 'London/NY Overlap'].indexOf(primarySession) !== -1) return primarySession;
+    return 'Other';
+  }
+
+  async function fillJournalFromExtraction(extraction) {
     if (!extraction) {
       if (typeof showToast === 'function') showToast('Analyze a screenshot first.', 'error');
       return;
@@ -4986,6 +4996,18 @@ if ('serviceWorker' in navigator) {
     if (poiOption) setVal('j-poi', poiOption);
     setVal('j-notes', 'Logged from a screenshot-read setup' + (extraction.timeframe ? ' (' + extraction.timeframe + ').' : '.'));
     if (typeof showToast === 'function') showToast('Trade pre-filled from your screenshot — review and Save.', 'success');
+
+    // Auto-fill Session from the live session-detect engine -- the
+    // screenshot itself doesn't show a session, but you're logging this
+    // at (or shortly after) the moment you took it, so the current
+    // detected session is the right value almost all of the time. Best
+    // effort: if this fails (e.g. backend still waking up), the Session
+    // field is simply left on "— Select —" for you to set manually.
+    try {
+      const sessionData = await apiFetch('/api/v1/tools/session-detect', { method: 'POST', body: JSON.stringify({}) });
+      const sessionOption = mapPrimarySessionToOption(sessionData.primarySession);
+      if (sessionOption) setVal('j-session', sessionOption);
+    } catch (e) { /* best-effort only -- leave Session unset on failure */ }
   }
 
   async function runPretradeCheck() {
