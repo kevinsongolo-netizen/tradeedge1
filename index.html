@@ -4911,6 +4911,14 @@ if ('serviceWorker' in navigator) {
       (extraction.poiType ? '<div class="review-item">' + escapeHtml(extraction.poiType) + (extraction.latestEvent ? ' &middot; ' + escapeHtml(extraction.latestEvent) : '') + '</div>' : '') +
       '<div class="review-item" style="font-size:0.8rem;color:var(--text-secondary);">' + escapeHtml(fmt(extraction.trend)) + ' trend &middot; ' + escapeHtml(fmt(extraction.premiumDiscount)) + ' &middot; read confidence ' + fmt(extraction.readConfidence) + '%</div>';
 
+    // Sprint 20 fix -- the backend deterministically checks whether SL/TP
+    // land on the correct side of entry for the stated direction (a vision
+    // misread can't be auto-corrected, since we don't know which number is
+    // wrong, but it can be flagged loudly instead of presented as fact).
+    const warningHtml = extraction.numberConsistencyWarning
+      ? '<div class="review-item" style="border-color:var(--red);color:var(--red);">&#9888; ' + escapeHtml(extraction.numberConsistencyWarning) + '</div>'
+      : '';
+
     let statsHtml = '';
     if (insight.hasEnoughHistory && insight.sampleSize > 0) {
       statsHtml = confidenceBar('Historical win rate (similar setups)', Math.round(insight.winRate || 0)) +
@@ -4935,7 +4943,7 @@ if ('serviceWorker' in navigator) {
         '</div>'
       : '';
 
-    el.innerHTML = placeholderBanner + extractionHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml;
+    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml;
   }
 
   async function analyzeSetupScreenshot(fileInputId, targetElId, errorElId) {
