@@ -4486,6 +4486,37 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Live Opportunity Scanner</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches every symbol/timeframe you have an MT5 EA running on and tells you the moment any of them has a VALID setup &mdash; no more flipping between charts one at a time. Requires the Live MT5 Feed EA to already be attached and pushing for each asset you add here.</p>
+
+    <div class="form-row" style="align-items:end;">
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Symbol</label>
+        <input type="text" class="form-input" id="ai-scan-add-symbol" placeholder="e.g. GBPUSD" list="ai-live-symbol-list" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Timeframe</label>
+        <input type="text" class="form-input" id="ai-scan-add-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <button class="btn btn-primary" onclick="aiScannerAdd()">Add to scanner</button>
+      </div>
+    </div>
+
+    <div id="ai-scan-list" style="margin-top:1rem;"></div>
+
+    <div style="display:flex;align-items:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="aiScannerScanNow()">Scan now</button>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="ai-scan-autorefresh"> Auto-scan every 30 seconds
+      </label>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
+        <input type="checkbox" id="ai-scan-notify"> Pop a browser notification on a new VALID setup
+      </label>
+    </div>
+    <div id="ai-scan-status" style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);"></div>
+    <div id="ai-scan-results" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
     <div class="form-group">
       <label class="form-label">Backend URL</label>
       <div style="display:flex;gap:0.5rem;">
@@ -4535,14 +4566,14 @@ if ('serviceWorker' in navigator) {
       </label>
     </div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" list="ai-ca-pair-list" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Pair</label><input type="text" class="form-input" id="ai-pt-pair" placeholder="EURUSD" value="GOLDmicro" list="ai-ca-pair-list" autocomplete="off"></div>
       <div class="form-group"><label class="form-label">Session (optional)</label>
         <select class="form-select" id="ai-pt-session"><option value="">— Select —</option><option value="Asian">Asian</option><option value="London">London</option><option value="Overlap">Overlap</option><option value="New York">New York</option></select>
       </div>
     </div>
     <div id="ai-pt-live-fields" class="form-row">
-      <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-pt-live-symbol" placeholder="e.g. EURUSD, GER40Cash" list="ai-live-symbol-list" autocomplete="off"></div>
-      <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-pt-live-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Symbol (as set in your MT5 EA)</label><input type="text" class="form-input" id="ai-pt-live-symbol" placeholder="e.g. EURUSD, GER40Cash" value="GOLDmicro" list="ai-live-symbol-list" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Timeframe</label><input type="text" class="form-input" id="ai-pt-live-timeframe" placeholder="e.g. H4" value="M15" list="ai-live-timeframe-list" autocomplete="off"></div>
     </div>
     <div id="ai-pt-live-addon-note" style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.75rem;">Rule 3's 2nd, same-size add-on entry is detected automatically from your MT5 EA (it checks every push whether you already have a losing open position on this symbol) -- no need to tell it manually in Live Feed mode.</div>
     <div id="ai-pt-candle-fields" style="display:none;">
@@ -4744,36 +4775,6 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Live Opportunity Scanner</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches every symbol/timeframe you have an MT5 EA running on and tells you the moment any of them has a VALID setup &mdash; no more flipping between charts one at a time. Requires the Live MT5 Feed EA to already be attached and pushing for each asset you add here.</p>
-
-    <div class="form-row" style="align-items:end;">
-      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Symbol</label>
-        <input type="text" class="form-input" id="ai-scan-add-symbol" placeholder="e.g. GBPUSD" list="ai-live-symbol-list" autocomplete="off">
-      </div>
-      <div class="form-group" style="margin-bottom:0;"><label class="form-label">Timeframe</label>
-        <input type="text" class="form-input" id="ai-scan-add-timeframe" placeholder="e.g. H4" list="ai-live-timeframe-list" autocomplete="off">
-      </div>
-      <div class="form-group" style="margin-bottom:0;">
-        <button class="btn btn-primary" onclick="aiScannerAdd()">Add to scanner</button>
-      </div>
-    </div>
-
-    <div id="ai-scan-list" style="margin-top:1rem;"></div>
-
-    <div style="display:flex;align-items:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="aiScannerScanNow()">Scan now</button>
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
-        <input type="checkbox" id="ai-scan-autorefresh"> Auto-scan every 30 seconds
-      </label>
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;">
-        <input type="checkbox" id="ai-scan-notify"> Pop a browser notification on a new VALID setup
-      </label>
-    </div>
-    <div id="ai-scan-status" style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);"></div>
-    <div id="ai-scan-results" style="margin-top:1rem;"></div>
-  </div>
 </div>
 
 <script>
