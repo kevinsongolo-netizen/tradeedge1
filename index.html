@@ -4590,6 +4590,20 @@ if ('serviceWorker' in navigator) {
       <div id="ai-news-error" style="margin-top:0.5rem;color:var(--red);font-size:0.85rem;"></div>
       <div id="ai-news-output" style="margin-top:0.5rem;"></div>
     </div>
+
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
+      <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.6rem;">Add your own news event -- always checked alongside the automatic calendar (works even if that calendar isn't configured or is erroring, like a missing/expired API key).</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Event name</label><input type="text" class="form-input" id="ai-news-manual-name" placeholder="e.g. FOMC Rate Decision"></div>
+        <div class="form-group"><label class="form-label">Currency (optional)</label><input type="text" class="form-input" id="ai-news-manual-currency" placeholder="USD"></div>
+        <div class="form-group"><label class="form-label">Impact</label>
+          <select class="form-select" id="ai-news-manual-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+        </div>
+        <div class="form-group"><label class="form-label">Date &amp; time</label><input type="datetime-local" class="form-input" id="ai-news-manual-time"></div>
+      </div>
+      <button class="btn" onclick="aiAddManualNewsEvent()">Add event</button>
+      <div id="ai-news-manual-list" style="margin-top:0.75rem;"></div>
+    </div>
   </div>
 
   <div class="card" style="margin-top:1.5rem;">
@@ -4923,14 +4937,38 @@ if ('serviceWorker' in navigator) {
   function mapPoiTypeToOption(poiType) {
     if (!poiType) return '';
     const t = poiType.toLowerCase();
-    if (t.indexOf('bullish') !== -1 && t.indexOf('fvg') !== -1) return 'Bullish FVG';
-    if (t.indexOf('bearish') !== -1 && t.indexOf('fvg') !== -1) return 'Bearish FVG';
-    if (t.indexOf('bullish') !== -1 && (t.indexOf('order block') !== -1 || t.indexOf(' ob') !== -1)) return 'Bullish OB';
-    if (t.indexOf('bearish') !== -1 && (t.indexOf('order block') !== -1 || t.indexOf(' ob') !== -1)) return 'Bearish OB';
+    // Word-boundary/looser matching -- the vision model's poiType is a
+    // free-text description (e.g. "Buy Limit at 63909.48, near Bullish
+    // Order Block"), not a fixed enum, so this needs to catch "OB" as a
+    // standalone word, "orderblock" with no space, and "fair value gap"
+    // spelled out, not just the exact phrase "order block"/"fvg".
+    const hasFvg = /\bfvg\b/.test(t) || t.indexOf('fair value gap') !== -1;
+    const hasOb = /\bob\b/.test(t) || t.indexOf('order block') !== -1 || t.indexOf('orderblock') !== -1;
+    const isBullish = t.indexOf('bullish') !== -1;
+    const isBearish = t.indexOf('bearish') !== -1;
+    if (hasFvg && isBullish) return 'Bullish FVG';
+    if (hasFvg && isBearish) return 'Bearish FVG';
+    if (hasOb && isBullish) return 'Bullish OB';
+    if (hasOb && isBearish) return 'Bearish OB';
     if (t.indexOf('premium') !== -1) return 'Premium';
     if (t.indexOf('discount') !== -1) return 'Discount';
     if (t.indexOf('equilibrium') !== -1) return 'Equilibrium';
     return 'Other';
+  }
+
+  // Mirrors GuessAsset() in tools/mt5/TradeEdgeAutoJournal.mq5 exactly
+  // (same keyword lists) so a screenshot-logged trade and an MT5-auto-
+  // imported trade guess the same Asset Class for the same symbol.
+  function guessAssetFromPair(pair) {
+    if (!pair) return '';
+    const s = pair.toUpperCase();
+    if (s.indexOf('XAU') !== -1 || s.indexOf('GOLD') !== -1 || s.indexOf('XAG') !== -1 || s.indexOf('SILVER') !== -1) return 'metals';
+    if (s.indexOf('BTC') !== -1 || s.indexOf('ETH') !== -1 || s.indexOf('CRYPTO') !== -1) return 'crypto';
+    if (s.indexOf('CASH') !== -1 || s.indexOf('US30') !== -1 || s.indexOf('US100') !== -1 ||
+        s.indexOf('GER40') !== -1 || s.indexOf('UK100') !== -1 || s.indexOf('NAS') !== -1 ||
+        s.indexOf('SPX') !== -1 || s.indexOf('DOW') !== -1) return 'indices';
+    if (s.indexOf('OIL') !== -1 || s.indexOf('WTI') !== -1 || s.indexOf('BRENT') !== -1) return 'commodities';
+    return 'forex';
   }
 
   function renderSetupInsight(targetElId, data) {
@@ -5034,9 +5072,12 @@ if ('serviceWorker' in navigator) {
     setVal('j-pair', extraction.pair);
     const dir = (extraction.orderDirection || '').toLowerCase();
     if (dir === 'buy' || dir === 'sell') setVal('j-direction', dir);
+    const assetOption = guessAssetFromPair(extraction.pair);
+    if (assetOption) setVal('j-asset', assetOption);
     setVal('j-entry', extraction.entry);
     setVal('j-sl', extraction.stopLoss);
     setVal('j-tp', extraction.takeProfit);
+    setVal('j-lots', extraction.lots);
     setVal('j-rr', extraction.riskReward);
     const poiOption = mapPoiTypeToOption(extraction.poiType);
     if (poiOption) setVal('j-poi', poiOption);
@@ -5215,6 +5256,94 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Manually-added news events -- always checked alongside the automatic
+  // calendar, and still checked even when that calendar isn't configured
+  // (placeholder mode) or is erroring (e.g. a missing/expired JBlanked or
+  // Finnhub API key), since this doesn't depend on the backend at all.
+  const MANUAL_NEWS_KEY = 'te_manual_news_events';
+
+  function getManualNewsEvents() {
+    try {
+      const raw = localStorage.getItem(MANUAL_NEWS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function setManualNewsEvents(list) {
+    localStorage.setItem(MANUAL_NEWS_KEY, JSON.stringify(list));
+  }
+
+  function renderManualNewsList() {
+    const el = document.getElementById('ai-news-manual-list');
+    if (!el) return;
+    const list = getManualNewsEvents();
+    if (!list.length) {
+      el.innerHTML = '<div style="font-size:0.78rem;color:var(--text-muted);">No manual events added yet.</div>';
+      return;
+    }
+    el.innerHTML = list.map(function (ev, i) {
+      const when = new Date(ev.time);
+      const whenStr = isNaN(when) ? ev.time : when.toLocaleString();
+      return '<div class="review-item" style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
+        '<span>' + escapeHtml(ev.event) + (ev.currency ? ' (' + escapeHtml(ev.currency) + ')' : '') + ' &middot; ' + escapeHtml(ev.impact) + ' &middot; ' + escapeHtml(whenStr) + '</span>' +
+        '<span onclick="aiRemoveManualNewsEvent(' + i + ')" style="cursor:pointer;color:var(--red);flex-shrink:0;">&times;</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.aiAddManualNewsEvent = function () {
+    const nameInput = document.getElementById('ai-news-manual-name');
+    const currencyInput = document.getElementById('ai-news-manual-currency');
+    const impactInput = document.getElementById('ai-news-manual-impact');
+    const timeInput = document.getElementById('ai-news-manual-time');
+    const name = nameInput.value.trim();
+    const timeVal = timeInput.value;
+    if (!name || !timeVal) {
+      if (typeof showToast === 'function') showToast('Enter an event name and date/time.', 'error');
+      return;
+    }
+    const iso = new Date(timeVal).toISOString();
+    const list = getManualNewsEvents();
+    list.push({ event: name, currency: currencyInput.value.trim().toUpperCase(), impact: impactInput.value, time: iso });
+    list.sort(function (a, b) { return new Date(a.time) - new Date(b.time); });
+    setManualNewsEvents(list);
+    renderManualNewsList();
+    nameInput.value = '';
+    currencyInput.value = '';
+    timeInput.value = '';
+    if (typeof showToast === 'function') showToast('News event added.', 'success');
+    runNewsCheck();
+  };
+
+  window.aiRemoveManualNewsEvent = function (index) {
+    const list = getManualNewsEvents();
+    list.splice(index, 1);
+    setManualNewsEvents(list);
+    renderManualNewsList();
+    runNewsCheck();
+  };
+
+  const IMPACT_RANK = { low: 1, medium: 2, high: 3 };
+
+  function matchingManualEvents(bufferMinutes, currencies, minImpact) {
+    const minRank = IMPACT_RANK[minImpact] || 1;
+    const now = new Date();
+    return getManualNewsEvents().filter(function (ev) {
+      const t = new Date(ev.time);
+      if (isNaN(t)) return false;
+      const minutesAway = (t - now) / 60000;
+      if (minutesAway < -5 || minutesAway > bufferMinutes) return false; // small grace window for "just happened"
+      if (currencies && currencies.length && ev.currency && currencies.indexOf(ev.currency) === -1) return false;
+      const rank = IMPACT_RANK[(ev.impact || '').toLowerCase()] || 1;
+      return rank >= minRank;
+    }).map(function (ev) {
+      return { event: ev.event, currency: ev.currency, impact: ev.impact, minutesAway: Math.round((new Date(ev.time) - now) / 60000), manual: true };
+    });
+  }
+
   async function runNewsCheck() {
     const errorEl = document.getElementById('ai-news-error');
     const el = document.getElementById('ai-news-output');
@@ -5222,31 +5351,43 @@ if ('serviceWorker' in navigator) {
     // LIVE: always checks from right now, no manual "planned trade time"
     // input needed anymore.
     const buffer = parseInt(document.getElementById('ai-news-buffer').value, 10);
+    const bufferMinutes = isNaN(buffer) ? 60 : buffer;
     const currenciesRaw = document.getElementById('ai-news-currencies').value.trim();
     const currencies = currenciesRaw ? currenciesRaw.split(',').map(function (s) { return s.trim().toUpperCase(); }).filter(Boolean) : null;
     const minImpact = document.getElementById('ai-news-min-impact').value;
 
+    const manualMatches = matchingManualEvents(bufferMinutes, currencies, minImpact);
+
     const body = {
       plannedTime: new Date().toISOString(),
-      bufferMinutes: isNaN(buffer) ? 60 : buffer,
+      bufferMinutes: bufferMinutes,
       currencies: currencies,
       minImpact: minImpact,
     };
+
+    let apiEvents = [], apiWarnings = [], apiErrorMsg = null;
     try {
       const data = await apiFetch('/api/v1/news/check-calendar', { method: 'POST', body: JSON.stringify(body) });
-      const statusColor = data.hasHighImpactNearby ? 'var(--red)' : 'var(--green)';
-      const statusText = data.hasHighImpactNearby ? 'News nearby — consider waiting' : 'Clear to trade (no matching news nearby)';
-      el.innerHTML =
-        '<div class="review-item"><strong style="color:' + statusColor + ';">' + statusText + '</strong></div>' +
-        (data.matchingEvents.length
-          ? data.matchingEvents.map(function (ev) {
-              return '<div class="review-item">' + escapeHtml(ev.event) + ' (' + escapeHtml(ev.currency) + ', ' + escapeHtml(ev.impact) + ') — ' + ev.minutesAway + ' min away</div>';
-            }).join('')
-          : '') +
-        (data.warnings.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + data.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
+      apiEvents = data.matchingEvents || [];
+      apiWarnings = data.warnings || [];
     } catch (e) {
-      errorEl.textContent = 'Error: ' + e.message;
+      // Don't let the automatic calendar's failure hide manually-added
+      // events -- those don't depend on the backend at all. Show a short
+      // note instead of the raw error/JSON dump.
+      apiErrorMsg = e.message;
     }
+
+    const allEvents = apiEvents.concat(manualMatches);
+    const statusColor = allEvents.length ? 'var(--red)' : 'var(--green)';
+    const statusText = allEvents.length ? 'News nearby — consider waiting' : 'Clear to trade (no matching news nearby)';
+
+    el.innerHTML =
+      '<div class="review-item"><strong style="color:' + statusColor + ';">' + statusText + '</strong></div>' +
+      allEvents.map(function (ev) {
+        return '<div class="review-item">' + escapeHtml(ev.event) + (ev.currency ? ' (' + escapeHtml(ev.currency) + ', ' + escapeHtml(ev.impact) + ')' : ' (' + escapeHtml(ev.impact) + ')') + ' — ' + ev.minutesAway + ' min away' + (ev.manual ? ' <span style="color:var(--text-muted);font-size:0.72rem;">(manual)</span>' : '') + '</div>';
+      }).join('') +
+      (apiWarnings.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;">' + apiWarnings.map(escapeHtml).join('<br>') + '</div>' : '') +
+      (apiErrorMsg ? '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Automatic calendar unavailable right now -- showing manually-added events only. (' + escapeHtml(apiErrorMsg.slice(0, 160)) + ')</div>' : '');
   }
 
   // LIVE Session & News: runs both on load and every 60s automatically,
@@ -5534,6 +5675,7 @@ if ('serviceWorker' in navigator) {
     }
 
     // LIVE Session & News init -- starts immediately, no button
+    renderManualNewsList();
     startSessionNewsLive();
 
     // Sprint 18: LIVE Margin Buffer init -- starts immediately, no button
