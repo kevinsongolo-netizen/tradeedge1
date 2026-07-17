@@ -5017,13 +5017,36 @@ if ('serviceWorker' in navigator) {
       return '<div class="review-item" style="color:#e0a800;">' + escapeHtml(line) + '</div>';
     }).join('');
 
+    // Sprint 20 Phase 2 -- visual trade-memory cards: each closest match
+    // gets its own card (similarity %, outcome, R-multiple) plus the
+    // specific reasons the backend's similarity engine found it similar
+    // (same direction, similar stop size, same POI type, ...) instead of
+    // a plain one-line list with no explanation of "why".
     const topSimilarHtml = (insight.topSimilar && insight.topSimilar.length)
-      ? '<div class="review-item" style="border-top:1px dashed var(--border);padding-top:0.5rem;margin-top:0.5rem;">' +
-          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">CLOSEST MATCHES</div>' +
-          insight.topSimilar.map(function (s) {
-            const color = s.outcome === 'Win' ? 'var(--green)' : (s.outcome === 'Loss' ? 'var(--red)' : 'var(--text-muted)');
-            return '<div style="font-size:0.82rem;padding:0.2rem 0;">' + Math.round(s.similarity) + '% similar — <strong style="color:' + color + ';">' + escapeHtml(s.outcome || '') + '</strong>' + (s.date ? ' (' + escapeHtml(s.date) + ')' : '') + (s.pnl != null ? ' — $' + Number(s.pnl).toFixed(2) : '') + '</div>';
+      ? '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
+          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">MOST SIMILAR TRADES</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:0.6rem;">' +
+          insight.topSimilar.map(function (s, i) {
+            const isWin = s.outcome === 'Win';
+            const isLoss = s.outcome === 'Loss';
+            const color = isWin ? 'var(--green)' : (isLoss ? 'var(--red)' : 'var(--text-muted)');
+            const bg = isWin ? 'var(--green-dim)' : (isLoss ? 'rgba(220,80,80,0.08)' : 'var(--bg-input)');
+            const reasonsHtml = (s.reasons && s.reasons.length)
+              ? '<div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.35rem;">' +
+                  s.reasons.map(function (r) { return '&#8226; ' + escapeHtml(r); }).join('<br>') +
+                '</div>'
+              : '';
+            return '<div style="flex:1 1 220px;min-width:200px;max-width:280px;border:1px solid ' + color + ';background:' + bg + ';border-radius:8px;padding:0.6rem 0.75rem;">' +
+              '<div style="font-size:0.72rem;color:var(--text-muted);">Trade #' + (i + 1) + (s.date ? ' &middot; ' + escapeHtml(s.date) : '') + '</div>' +
+              '<div style="font-size:0.95rem;font-weight:700;color:' + color + ';margin-top:0.15rem;">' + Math.round(s.similarity) + '% Similar</div>' +
+              '<div style="font-size:0.85rem;margin-top:0.1rem;"><strong style="color:' + color + ';">' + escapeHtml(s.outcome || '') + '</strong>' +
+                (s.rMultiple ? ' &middot; <strong>' + escapeHtml(s.rMultiple) + '</strong>' : '') +
+                (s.pnl != null ? ' &middot; $' + Number(s.pnl).toFixed(2) : '') +
+              '</div>' +
+              reasonsHtml +
+            '</div>';
           }).join('') +
+          '</div>' +
         '</div>'
       : '';
 
@@ -5205,15 +5228,21 @@ if ('serviceWorker' in navigator) {
     const body = {
       pair: (document.getElementById('j-pair').value || '').trim() || null,
       direction: document.getElementById('j-direction').value,
+      asset: document.getElementById('j-asset') ? (document.getElementById('j-asset').value || null) : null,
       entry: numOrNull(document.getElementById('j-entry').value),
       exit: numOrNull(exit),
+      sl: numOrNull(document.getElementById('j-sl') ? document.getElementById('j-sl').value : null),
+      tp: numOrNull(document.getElementById('j-tp') ? document.getElementById('j-tp').value : null),
+      lots: numOrNull(document.getElementById('j-lots') ? document.getElementById('j-lots').value : null),
       pnl: numOrNull(document.getElementById('j-pnl').value),
       rr: numOrNull(document.getElementById('j-rr').value),
       rulesFollowed: document.getElementById('j-rules-followed').value,
       workedTags: (typeof selectedWorkedTags !== 'undefined') ? [...selectedWorkedTags] : [],
       failedTags: (typeof selectedFailedTags !== 'undefined') ? [...selectedFailedTags] : [],
       exitReason: document.getElementById('j-exit-reason').value || null,
+      h4Trend: document.getElementById('j-trend') ? (document.getElementById('j-trend').value || null) : null,
       h4PoiType: document.getElementById('j-poi').value || null,
+      session: document.getElementById('j-session') ? (document.getElementById('j-session').value || null) : null,
       notes: document.getElementById('j-notes').value || null,
     };
     try {
@@ -5222,7 +5251,14 @@ if ('serviceWorker' in navigator) {
         '<div class="review-item"><strong>' + escapeHtml(data.headline) + '</strong></div>' +
         (data.whatWorked.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.whatWorked.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
         (data.whatWentWrong.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.whatWentWrong.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
-        '<div class="review-item"><strong>Lesson:</strong> ' + escapeHtml(data.lesson) + '</div>';
+        '<div class="review-item"><strong>Lesson:</strong> ' + escapeHtml(data.lesson) + '</div>' +
+        (data.hasEnoughHistory
+          ? '<div class="review-item" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' +
+              '<strong>Vs. your own history</strong> <span style="color:var(--text-muted);font-size:0.8rem;">(' + data.similarWins + 'W / ' + data.similarLosses + 'L of ' + data.similarSampleSize + ' similar trades)</span>' +
+              (data.lessons.length ? '<br>' + data.lessons.map(escapeHtml).join('<br>') : '') +
+              (data.patterns.length ? '<br>' + data.patterns.map(escapeHtml).join('<br>') : '') +
+            '</div>'
+          : (data.lessons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' + data.lessons.map(escapeHtml).join('<br>') + '</div>' : ''));
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
     }
