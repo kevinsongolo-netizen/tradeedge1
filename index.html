@@ -4751,6 +4751,13 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">AI Learning Engine</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Compares EVERY characteristic your screenshots and history contain &mdash; order block freshness, FVG state, liquidity sweeps, rejection strength, premium/discount, session, BOS/CHoCH type, touch number, and more &mdash; not just a hand-picked few. Ranks what your winners usually have and what your losers usually have, independently, purely from your own data. No fixed Smart Money rules.</p>
+    <button class="btn" onclick="aiLoadEdgeProfile()">Learn from all my characteristics</button>
+    <div id="ai-edge-profile-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">AI Trade Mentor Report</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Your biggest improvement, your biggest repeated mistake, the habit costing you the most money, your best/worst setup and pair by real dollars, and the single characteristic your winners (and losers) almost always share &mdash; all discovered purely from your own logged trades.</p>
     <div style="margin-bottom:0.6rem;">
@@ -5315,6 +5322,40 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Sprint 20 Phase 8 -- "AI Learning Engine": whole-history version of
+  // renderEdgeProfileHtml's ranked lists, with no candidate to compare
+  // against (GET /coach/edge-profile -> edge_profile_engine.py). EVERY
+  // structural tag, session, zone, trend value the trader's screenshots
+  // and history contain -- not a hand-picked few -- ranked independently
+  // by how common it is within winners and within losers.
+  async function loadEdgeProfile() {
+    const el = document.getElementById('ai-edge-profile-output');
+    if (!el) return;
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/edge-profile');
+      if (!data.hasEnoughData) {
+        el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Not enough winning and losing trades yet (need at least 3 of each) -- keep journaling with the full screenshot fingerprint and this will fill in.</div>';
+        return;
+      }
+      function rankedListHtml(title, rows, color) {
+        if (!rows || !rows.length) return '<div style="color:var(--text-muted);font-size:0.85rem;">Nothing common enough yet.</div>';
+        return '<div style="font-weight:600;margin-bottom:0.2rem;' + (color ? 'color:' + color + ';' : '') + '">' + escapeHtml(title) + '</div>' +
+          rows.map(function (r) {
+            return '<div class="review-item" style="font-size:0.85rem;">' + Math.round(r.share) + '% &middot; ' + escapeHtml(r.label) + '</div>';
+          }).join('');
+      }
+      el.innerHTML =
+        '<div style="display:flex;gap:1.5rem;flex-wrap:wrap;">' +
+          '<div style="flex:1;min-width:220px;">' + rankedListHtml('Your winning trades usually have:', data.winnerCharacteristics, 'var(--green)') + '</div>' +
+          '<div style="flex:1;min-width:220px;">' + rankedListHtml('Your losing trades usually have:', data.loserCharacteristics, 'var(--red)') + '</div>' +
+        '</div>' +
+        '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Based on ' + data.winningTradeCount + ' winning and ' + data.losingTradeCount + ' losing trades. Run Pre-Trade Check or Chart Analysis to see how a specific setup compares against these.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
   // Sprint 20 -- screenshot-first workflow. Both Pre-Trade Check and
   // Chart Analysis Engine call the same backend endpoint
   // (/chart/full-analysis/image) and render the same shape:
@@ -5457,6 +5498,9 @@ if ('serviceWorker' in navigator) {
     // renderSimilarTradesCards().
     const topSimilarHtml = renderSimilarTradesCards(insight.topSimilar);
     const characteristicGapsHtml = renderCharacteristicGapsHtml(insight.characteristicGaps);
+    // Sprint 20 Phase 8 -- "AI Learning Engine": whole-history
+    // characteristic discovery compared against this specific setup.
+    const edgeProfileHtml = renderEdgeProfileHtml(insight.edgeProfile);
     // Sprint 20 Phase 5 -- "show the screenshot of every similar trade":
     // put THIS setup's own screenshot right above the similar-trade
     // cards so the visual comparison is literally side by side, only
@@ -5465,7 +5509,55 @@ if ('serviceWorker' in navigator) {
       ? renderCurrentSetupScreenshotHtml(meta.screenshotUrl)
       : '';
 
-    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml;
+    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml + edgeProfileHtml;
+  }
+
+  // Sprint 20 Phase 8 -- "AI Learning Engine": renders the whole-history
+  // characteristic discovery -- EVERY structural tag, session, zone,
+  // trend value the trader's own screenshots and trade history contain,
+  // ranked independently by how common it is within winners and within
+  // losers (not hand-picked, not filtered to only the differences) --
+  // plus, since a candidate setup is always available here, "This setup
+  // matches N of your winning characteristics / M of your losing
+  // characteristics" with the exact matched labels listed. Purely
+  // descriptive, never a verdict -- same honesty bar (>=3 winners AND
+  // >=3 losers) as every other engine on this page. Shared by the
+  // pre-trade Chart Analysis insight (renderSetupInsight, above) and the
+  // journal trade detail view (loadTradeDetailInsight, below).
+  function renderEdgeProfileHtml(profile) {
+    if (!profile || !profile.hasEnoughData) return '';
+    function rankedListHtml(title, rows, color) {
+      if (!rows || !rows.length) return '';
+      return '<div style="margin-top:0.4rem;">' +
+          '<div style="font-weight:600;margin-bottom:0.2rem;' + (color ? 'color:' + color + ';' : '') + '">' + escapeHtml(title) + '</div>' +
+          rows.map(function (r) {
+            return '<div>' + Math.round(r.share) + '% &middot; ' + escapeHtml(r.label) + '</div>';
+          }).join('') +
+        '</div>';
+    }
+    const winnerListHtml = rankedListHtml('What your winning trades usually have:', profile.winnerCharacteristics, 'var(--green)');
+    const loserListHtml = rankedListHtml('What your losing trades usually have:', profile.loserCharacteristics, 'var(--red)');
+    // "This setup matches: N of your winning characteristics. M of your
+    // losing characteristics." -- the trader's own requested wording,
+    // verbatim -- followed by exactly which ones, so it's never a
+    // black-box count.
+    const matchSummaryHtml =
+      '<div style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem;">' +
+        'This setup matches: ' + (profile.winnerMatchCount || 0) + ' of your winning characteristics. ' +
+        (profile.loserMatchCount || 0) + ' of your losing characteristics.' +
+      '</div>' +
+      ((profile.winnerMatches && profile.winnerMatches.length)
+        ? '<div style="font-size:0.82rem;"><span style="color:var(--green);">&#10003;</span> Matches winners on: ' + escapeHtml(profile.winnerMatches.join(', ')) + '</div>'
+        : '') +
+      ((profile.loserMatches && profile.loserMatches.length)
+        ? '<div style="font-size:0.82rem;"><span style="color:var(--red);">&#10003;</span> Matches losers on: ' + escapeHtml(profile.loserMatches.join(', ')) + '</div>'
+        : '');
+    if (!winnerListHtml && !loserListHtml && !matchSummaryHtml) return '';
+    return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">AI LEARNING ENGINE &mdash; YOUR FULL HISTORY</div>' +
+        matchSummaryHtml +
+        '<div style="font-size:0.85rem;">' + winnerListHtml + loserListHtml + '</div>' +
+      '</div>';
   }
 
   // Sprint 20 Phase 4 -- "what do my winners have that this doesn't /
@@ -5903,11 +5995,12 @@ if ('serviceWorker' in navigator) {
       const insight = data.insight || {};
       const cardsHtml = renderSimilarTradesCards(insight.topSimilar);
       const gapsHtml = renderCharacteristicGapsHtml(insight.characteristicGaps);
+      const edgeProfileHtml = renderEdgeProfileHtml(insight.edgeProfile);
       simEl.innerHTML = (cardsHtml || (
         '<div class="review-item" style="color:var(--text-muted);font-size:0.85rem;">' +
         escapeHtml((insight.narrative && insight.narrative[insight.narrative.length - 1]) || 'No similar trades found yet.') +
         '</div>'
-      )) + gapsHtml;
+      )) + gapsHtml + edgeProfileHtml;
       lessonEl.innerHTML = renderLessonSection(data.lesson);
     } catch (e) {
       // Most likely this trade was logged locally but never synced to
@@ -6436,6 +6529,7 @@ if ('serviceWorker' in navigator) {
   window.aiLoadEdgePatterns = loadEdgePatterns;
   window.aiLoadDiscoveredPatterns = loadDiscoveredPatterns;
   window.aiLoadMentorReport = loadMentorReport;
+  window.aiLoadEdgeProfile = loadEdgeProfile;
   window.aiRunPretrade = runPretradeCheck;
   window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
