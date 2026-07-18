@@ -1274,6 +1274,7 @@ body::before {
       <button class="nav-tab active" data-tab="rules">Rules</button>
       <button class="nav-tab" data-tab="checklist">Checklist</button>
       <button class="nav-tab" data-tab="journal">Journal</button>
+      <button class="nav-tab" data-tab="screenshots">Screenshots</button>
       <button class="nav-tab" data-tab="notes">Notes</button>
       <button class="nav-tab" data-tab="review">Review</button><button class="nav-tab" data-tab="ai-insights">AI Insights</button>
     </nav>
@@ -1401,6 +1402,38 @@ body::before {
         <div class="empty-state-text">No trades logged yet</div>
         <div class="empty-state-sub">Click "Log Trade" to record your first entry</div>
       </div>
+    </div>
+  </div>
+
+  <!-- SCREENSHOT LIBRARY TAB -->
+  <div class="tab-content" id="tab-screenshots">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">Screenshot Library</h2>
+        <p class="section-desc">Every chart screenshot you've uploaded, permanently linked back to its journal entry &mdash; across all accounts. Click any image to open the original full-size, or "View trade" to jump straight to that entry.</p>
+      </div>
+    </div>
+    <div class="journal-controls">
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;">
+        <input type="text" class="form-input" id="ss-search-text" placeholder="Search pair or notes..." style="width:auto;min-width:160px;" oninput="renderScreenshotLibrary()">
+        <select class="form-select" id="ss-search-kind" style="width:auto;" onchange="renderScreenshotLibrary()">
+          <option value="">Entry &amp; exit</option>
+          <option value="entry">Entry only</option>
+          <option value="exit">Exit only</option>
+        </select>
+        <select class="form-select" id="ss-search-account" style="width:auto;" onchange="renderScreenshotLibrary()">
+          <option value="">All accounts</option>
+        </select>
+        <input type="date" class="form-input" id="ss-search-date-from" style="width:auto;" onchange="renderScreenshotLibrary()" title="From date">
+        <input type="date" class="form-input" id="ss-search-date-to" style="width:auto;" onchange="renderScreenshotLibrary()" title="To date">
+        <button class="btn btn-sm" onclick="clearScreenshotLibrarySearch()">Clear search</button>
+      </div>
+    </div>
+    <div id="screenshot-library-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-top:1rem;"></div>
+    <div class="empty-state" id="screenshot-library-empty" style="display:none;">
+      <div class="empty-state-icon">🖼️</div>
+      <div class="empty-state-text">No screenshots yet</div>
+      <div class="empty-state-sub">Screenshots you upload via Pre-Trade Check, Chart Analysis, or a trade's exit-screenshot upload will show up here once screenshot storage is configured on the backend.</div>
     </div>
   </div>
 
@@ -2602,6 +2635,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     if (tab.dataset.tab === 'review') renderReview();
     if (tab.dataset.tab === 'checklist') renderChecklist();
     if (tab.dataset.tab === 'notes') renderNotes();
+    if (tab.dataset.tab === 'screenshots') renderScreenshotLibrary();
   });
 });
 
@@ -3295,6 +3329,148 @@ function renderJournal() {
         <button class="rule-action-btn delete" onclick="deleteJournalEntry('${e.id}')" title="Delete">✕</button>
       </td>
     </tr>`;
+  }).join('');
+}
+
+// Screenshot Library -- flattens every screenshot (entry AND exit) off
+// EVERY trade in EVERY account into one browsable, filterable grid, so
+// a screenshot uploaded via Pre-Trade Check/Chart Analysis/exit-upload
+// is never something you can only see once, buried inside that one
+// trade's edit modal. Purely a client-side view over data that's
+// already there (each journal entry's own `screenshots` array, see
+// buildScreenshotsForSave) -- no new backend endpoint needed, since
+// every screenshot URL is already permanently stored (Cloudinary) and
+// linked to its trade the moment it's uploaded.
+function collectAllScreenshots() {
+  const rows = [];
+  state.accounts.forEach(function (acc) {
+    (state.journal[acc] || []).forEach(function (e) {
+      (e.screenshots || []).forEach(function (shot) {
+        rows.push({
+          url: shot.url,
+          kind: shot.kind || 'entry',
+          uploadedAt: shot.uploadedAt || null,
+          account: acc,
+          tradeId: e.id,
+          pair: e.pair || '',
+          direction: e.direction || '',
+          date: e.date || '',
+          notes: e.notes || '',
+          pnl: e.pnl,
+        });
+      });
+    });
+  });
+  return rows;
+}
+
+function populateScreenshotLibraryAccountFilter() {
+  const sel = document.getElementById('ss-search-account');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All accounts</option>' +
+    state.accounts.map(function (acc) { return '<option value="' + escapeHtml(acc) + '">' + escapeHtml(acc) + '</option>'; }).join('');
+  if (state.accounts.indexOf(current) !== -1) sel.value = current;
+}
+
+function clearScreenshotLibrarySearch() {
+  ['ss-search-text', 'ss-search-date-from', 'ss-search-date-to'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const kindEl = document.getElementById('ss-search-kind');
+  if (kindEl) kindEl.value = '';
+  const acctEl = document.getElementById('ss-search-account');
+  if (acctEl) acctEl.value = '';
+  renderScreenshotLibrary();
+}
+
+// Jumps from a Screenshot Library card straight to that trade's Edit
+// Trade modal -- even when the screenshot belongs to a DIFFERENT
+// account than the one currently selected in the Journal tab, since
+// openJournalModal()/getCurrentJournal() only ever look at
+// state.currentAccount. Switches the active account (same as picking
+// it from the Journal tab's own account selector) and the active nav
+// tab, then opens the modal, so it looks and behaves exactly like
+// navigating there by hand.
+function openTradeFromScreenshotLibrary(account, tradeId) {
+  if (state.currentAccount !== account) {
+    state.currentAccount = account;
+    saveCurrentAccount();
+    const selector = document.getElementById('account-selector');
+    if (selector) selector.value = account;
+  }
+  document.querySelectorAll('.nav-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
+  const journalTab = document.querySelector('.nav-tab[data-tab="journal"]');
+  const journalContent = document.getElementById('tab-journal');
+  if (journalTab) journalTab.classList.add('active');
+  if (journalContent) journalContent.classList.add('active');
+  renderJournal();
+  openJournalModal(tradeId);
+}
+
+function renderScreenshotLibrary() {
+  const grid = document.getElementById('screenshot-library-grid');
+  const empty = document.getElementById('screenshot-library-empty');
+  if (!grid || !empty) return;
+
+  populateScreenshotLibraryAccountFilter();
+
+  let rows = collectAllScreenshots();
+
+  const searchText = (document.getElementById('ss-search-text') || {}).value || '';
+  const kind = (document.getElementById('ss-search-kind') || {}).value || '';
+  const account = (document.getElementById('ss-search-account') || {}).value || '';
+  const dateFrom = (document.getElementById('ss-search-date-from') || {}).value || '';
+  const dateTo = (document.getElementById('ss-search-date-to') || {}).value || '';
+  const searchLower = searchText.trim().toLowerCase();
+
+  if (searchLower) {
+    rows = rows.filter(function (r) {
+      return r.pair.toLowerCase().indexOf(searchLower) !== -1 || r.notes.toLowerCase().indexOf(searchLower) !== -1;
+    });
+  }
+  if (kind) rows = rows.filter(function (r) { return r.kind === kind; });
+  if (account) rows = rows.filter(function (r) { return r.account === account; });
+  if (dateFrom) rows = rows.filter(function (r) { return r.date && r.date >= dateFrom; });
+  if (dateTo) rows = rows.filter(function (r) { return r.date && r.date <= dateTo; });
+
+  // Newest first -- falls back to uploadedAt when two screenshots share
+  // the same trade date (entry vs. exit shot on the same trade).
+  rows.sort(function (a, b) {
+    const byDate = (b.date || '').localeCompare(a.date || '');
+    if (byDate !== 0) return byDate;
+    return (b.uploadedAt || '').localeCompare(a.uploadedAt || '');
+  });
+
+  if (rows.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  grid.innerHTML = rows.map(function (r) {
+    const pnlClass = r.pnl > 0 ? 'var(--green)' : r.pnl < 0 ? 'var(--red)' : 'var(--text-muted)';
+    const kindLabel = r.kind === 'exit' ? 'Exit' : 'Entry';
+    const kindColor = r.kind === 'exit' ? 'var(--accent)' : 'var(--green)';
+    const directionBadge = r.direction ? '<span class="badge badge-' + escapeHtml(r.direction) + '">' + escapeHtml(r.direction.toUpperCase()) + '</span>' : '';
+    const acctLabel = state.accounts.length > 1 ? ' &middot; ' + escapeHtml(r.account) : '';
+    return '<div class="card" style="padding:0;overflow:hidden;">' +
+        '<a href="' + encodeURI(r.url) + '" target="_blank" rel="noopener" style="display:block;">' +
+          '<img src="' + encodeURI(r.url) + '" alt="' + escapeHtml(r.pair) + ' ' + kindLabel + ' screenshot" style="width:100%;height:150px;object-fit:cover;display:block;">' +
+        '</a>' +
+        '<div style="padding:0.75rem;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">' +
+            '<strong>' + escapeHtml(r.pair || '—') + '</strong>' +
+            '<span style="font-size:0.72rem;font-weight:700;color:' + kindColor + ';">' + kindLabel + '</span>' +
+          '</div>' +
+          '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.4rem;">' + directionBadge + ' ' + formatDate(r.date) + acctLabel + '</div>' +
+          (r.pnl !== null && r.pnl !== undefined ? '<div style="font-size:0.8rem;font-weight:600;color:' + pnlClass + ';margin-bottom:0.5rem;">' + (r.pnl > 0 ? '+' : '') + '$' + Number(r.pnl).toFixed(2) + '</div>' : '<div style="margin-bottom:0.5rem;"></div>') +
+          '<button class="btn btn-sm" style="width:100%;" onclick="openTradeFromScreenshotLibrary(\'' + r.account.replace(/'/g, "\\'") + '\', \'' + r.tradeId + '\')">View trade</button>' +
+        '</div>' +
+      '</div>';
   }).join('');
 }
 
