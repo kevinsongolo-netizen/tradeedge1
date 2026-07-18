@@ -3312,11 +3312,18 @@ async function showSimilarTradesForRow(tradeId) {
   try {
     const data = await apiFetch('/api/v1/trades/' + encodeURIComponent(tradeId) + '/insight');
     const cardsHtml = renderSimilarTradesCards(data.insight && data.insight.topSimilar);
+    // Sprint 20 Phase 5 -- show this trade's OWN screenshot beside the
+    // similar-trade cards, same visual side-by-side as the pre-trade view.
+    const thisEntry = getCurrentJournal().find(function (e) { return e.id === tradeId; });
+    const thisScreenshotUrl = thisEntry && (thisEntry.screenshots || []).find(function (s) { return s.kind === 'entry'; });
+    const currentScreenshotHtml = (cardsHtml && thisScreenshotUrl)
+      ? renderCurrentSetupScreenshotHtml(thisScreenshotUrl.url)
+      : '';
     el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">' +
         '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">SIMILAR TO THIS TRADE</div>' +
         '<button class="btn btn-sm" onclick="document.getElementById(\'journal-similar-search-output\').innerHTML=\'\'">Close</button>' +
       '</div>' +
-      (cardsHtml || '<div class="review-item" style="color:var(--text-muted);">No similar trades found yet.</div>');
+      (cardsHtml ? (currentScreenshotHtml + cardsHtml) : '<div class="review-item" style="color:var(--text-muted);">No similar trades found yet.</div>');
   } catch (e) {
     el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Could not load similar trades -- sync this trade to the AI backend first (Sync to AI Backend, in AI Insights).</div>';
   }
@@ -4730,6 +4737,13 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Your Edge (Best Pattern)</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Once "My Best Setups" above looks at one thing at a time (just POI type), this looks at the FULL combination &mdash; pair, direction, timeframe, POI type, premium/discount zone, and session all matching at once &mdash; and ranks whichever exact combinations you've actually repeated enough times to call a real pattern. Entirely discovered from your own history; nothing here is a fixed "good setup."</p>
+    <button class="btn" onclick="aiLoadEdgePatterns()">Find my best pattern</button>
+    <div id="ai-edge-patterns-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
     <div class="form-group">
@@ -5163,6 +5177,47 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Sprint 20 Phase 5 -- "Best Pattern": the trader's own multi-
+  // dimensional edge (pair+direction+timeframe+POI+zone+session all
+  // matching at once), ranked purely from their own history
+  // (GET /coach/edge-patterns -> edge_pattern_engine.py). Same card
+  // style as loadPlaybook() above, just describing a full combination
+  // instead of a single POI type.
+  async function loadEdgePatterns() {
+    const el = document.getElementById('ai-edge-patterns-output');
+    if (!el) return;
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/edge-patterns');
+      const patterns = data.patterns || [];
+      if (!patterns.length) {
+        el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">No single pair+direction+timeframe+POI+zone+session combination has repeated enough times yet -- keep journaling with the full screenshot fingerprint and a pattern will surface here on its own.</div>';
+        return;
+      }
+      el.innerHTML =
+        '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;">' +
+        patterns.map(function (p) {
+          const rateColor = p.winRate >= 60 ? 'var(--green)' : (p.winRate < 40 ? 'var(--red)' : 'var(--text-secondary)');
+          return '<div style="flex:1 1 280px;min-width:260px;max-width:340px;border:1px solid var(--border);background:var(--bg-input);border-radius:8px;padding:0.75rem;">' +
+            '<div style="font-weight:700;margin-bottom:0.3rem;">' + escapeHtml(p.pair || '') +
+              (p.direction ? ' &middot; ' + escapeHtml(String(p.direction).toUpperCase()) : '') +
+              (p.timeframe ? ' &middot; ' + escapeHtml(p.timeframe) : '') +
+            '</div>' +
+            '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
+              escapeHtml(p.poiType || '') + (p.premiumDiscount ? ' &middot; ' + escapeHtml(p.premiumDiscount) : '') + (p.session ? ' &middot; ' + escapeHtml(p.session) : '') +
+            '</div>' +
+            '<div style="font-size:0.85rem;color:' + rateColor + ';font-weight:600;">' + Math.round(p.winRate) + '% win rate</div>' +
+            '<div style="font-size:0.78rem;color:var(--text-secondary);">' + p.wins + ' won, ' + p.losses + ' lost' + (p.breakeven ? ', ' + p.breakeven + ' breakeven' : '') + ' of ' + p.count + ' trades</div>' +
+            (p.averageRr != null ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Avg R:R ' + Number(p.averageRr).toFixed(2) + '</div>' : '') +
+          '</div>';
+        }).join('') +
+        '</div>' +
+        '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Based on ' + data.sampleSize + ' logged trades.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
   // Sprint 20 -- screenshot-first workflow. Both Pre-Trade Check and
   // Chart Analysis Engine call the same backend endpoint
   // (/chart/full-analysis/image) and render the same shape:
@@ -5297,8 +5352,15 @@ if ('serviceWorker' in navigator) {
     // renderSimilarTradesCards().
     const topSimilarHtml = renderSimilarTradesCards(insight.topSimilar);
     const characteristicGapsHtml = renderCharacteristicGapsHtml(insight.characteristicGaps);
+    // Sprint 20 Phase 5 -- "show the screenshot of every similar trade":
+    // put THIS setup's own screenshot right above the similar-trade
+    // cards so the visual comparison is literally side by side, only
+    // when there's actually a similar-trade section to compare it to.
+    const currentSetupScreenshotHtml = (insight.topSimilar && insight.topSimilar.length)
+      ? renderCurrentSetupScreenshotHtml(meta.screenshotUrl)
+      : '';
 
-    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml + characteristicGapsHtml;
+    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml;
   }
 
   // Sprint 20 Phase 4 -- "what do my winners have that this doesn't /
@@ -5310,9 +5372,19 @@ if ('serviceWorker' in navigator) {
   // have enough similar wins/losses to say anything honest.
   function renderCharacteristicGapsHtml(gaps) {
     const gapLines = gaps ? (gaps.winnerGaps || []).concat(gaps.loserEchoes || []) : [];
-    if (!gapLines.length) return '';
+    // Sprint 20 Phase 5 -- "This setup matches N of M characteristics
+    // your winning trades typically have" is worth showing on its own
+    // even when there are zero individual gap lines (a setup that
+    // matches every one of its winning profile's characteristics has
+    // nothing to list as a "gap", but that's exactly the point worth
+    // surfacing -- shown first, bolded, above the individual lines.
+    const summaryHtml = (gaps && gaps.winnerMatchSummary)
+      ? '<div class="review-item" style="font-size:0.85rem;font-weight:600;">' + escapeHtml(gaps.winnerMatchSummary) + '</div>'
+      : '';
+    if (!gapLines.length && !summaryHtml) return '';
     return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
         '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">VS. YOUR WINNERS &amp; LOSERS</div>' +
+        summaryHtml +
         gapLines.map(function (line) {
           return '<div class="review-item" style="font-size:0.85rem;">' + escapeHtml(line) + '</div>';
         }).join('') +
@@ -5325,6 +5397,33 @@ if ('serviceWorker' in navigator) {
   // "similar" means the exact same thing (and looks the same) in both
   // places since they're both rendering the same backend shape
   // (SimilarTradeSummary[]).
+  // Sprint 20 Phase 5 -- a small clickable thumbnail of a trade's own
+  // pre-trade screenshot, shared by the current-setup preview
+  // (renderCurrentSetupScreenshotHtml, below) and each similar-trade
+  // card. Opens the full-size image in a new tab on click -- no lightbox
+  // needed for a quick visual side-by-side. '' when there's no URL
+  // (trade logged before screenshots existed, or storage wasn't
+  // configured), same as everywhere else that degrades honestly.
+  function renderScreenshotThumbHtml(url, altLabel) {
+    if (!url) return '';
+    return '<a href="' + encodeURI(url) + '" target="_blank" rel="noopener" style="display:block;margin-top:0.4rem;">' +
+        '<img src="' + encodeURI(url) + '" alt="' + escapeHtml(altLabel || 'Trade screenshot') + '" ' +
+          'style="width:100%;max-height:110px;object-fit:cover;border-radius:6px;border:1px solid var(--border);display:block;">' +
+      '</a>';
+  }
+
+  // Sprint 20 Phase 5 -- "current setup screenshot beside each similar
+  // trade" -- shows the screenshot Chart Analysis just read, right above
+  // the MOST SIMILAR TRADES cards, so the visual comparison the trader
+  // asked for is literally on screen at once: this setup, then #1/#2/#3.
+  function renderCurrentSetupScreenshotHtml(url) {
+    if (!url) return '';
+    return '<div style="margin-top:0.5rem;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.3rem;">THIS SETUP</div>' +
+        renderScreenshotThumbHtml(url, 'Current setup screenshot') +
+      '</div>';
+  }
+
   function renderSimilarTradesCards(topSimilar) {
     if (!topSimilar || !topSimilar.length) return '';
     return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
@@ -5340,6 +5439,32 @@ if ('serviceWorker' in navigator) {
                 s.reasons.map(function (r) { return '&#8226; ' + escapeHtml(r); }).join('<br>') +
               '</div>'
             : '';
+          const thumbHtml = renderScreenshotThumbHtml(s.screenshotUrl, 'Trade #' + (i + 1) + ' screenshot');
+          // Sprint 20 Phase 5 -- "explain why the similarity score is
+          // what it is": a full matched/mismatched checklist across
+          // every dimension that was actually compared, tucked behind a
+          // "Why X% similar?" toggle so the compact card grid doesn't
+          // balloon by default, but the full answer is one click away.
+          const breakdownId = 'sim-breakdown-' + (s.id || i) + '-' + Math.random().toString(36).slice(2, 8);
+          const breakdownRowsHtml = (s.breakdown && s.breakdown.length)
+            ? s.breakdown.map(function (b) {
+                const markColor = b.matched ? 'var(--green)' : 'var(--red)';
+                const mark = b.matched ? '✓' : '✗';
+                const verb = b.matched ? 'Same' : 'Different';
+                return '<div style="font-size:0.72rem;color:var(--text-secondary);">' +
+                  '<span style="color:' + markColor + ';font-weight:700;">' + mark + '</span> ' + verb + ' ' + escapeHtml(b.label) +
+                '</div>';
+              }).join('')
+            : '';
+          const breakdownHtml = breakdownRowsHtml
+            ? '<div style="margin-top:0.35rem;">' +
+                '<a href="javascript:void(0)" onclick="var el=document.getElementById(\'' + breakdownId + '\');if(el)el.style.display=(el.style.display===\'none\'?\'block\':\'none\');" style="font-size:0.72rem;color:var(--accent);">Why ' + Math.round(s.similarity) + '% similar? &#9662;</a>' +
+                '<div id="' + breakdownId + '" style="display:none;margin-top:0.3rem;padding-top:0.3rem;border-top:1px dashed var(--border);">' +
+                  breakdownRowsHtml +
+                  '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.25rem;font-weight:600;">Overall similarity: ' + Math.round(s.similarity) + '%</div>' +
+                '</div>' +
+              '</div>'
+            : '';
           return '<div style="flex:1 1 220px;min-width:200px;max-width:280px;border:1px solid ' + color + ';background:' + bg + ';border-radius:8px;padding:0.6rem 0.75rem;">' +
             '<div style="font-size:0.72rem;color:var(--text-muted);">Trade #' + (i + 1) + (s.date ? ' &middot; ' + escapeHtml(s.date) : '') + '</div>' +
             '<div style="font-size:0.95rem;font-weight:700;color:' + color + ';margin-top:0.15rem;">' + Math.round(s.similarity) + '% Similar</div>' +
@@ -5347,7 +5472,9 @@ if ('serviceWorker' in navigator) {
               (s.rMultiple ? ' &middot; <strong>' + escapeHtml(s.rMultiple) + '</strong>' : '') +
               (s.pnl != null ? ' &middot; $' + Number(s.pnl).toFixed(2) : '') +
             '</div>' +
+            thumbHtml +
             reasonsHtml +
+            breakdownHtml +
           '</div>';
         }).join('') +
         '</div>' +
@@ -5383,6 +5510,18 @@ if ('serviceWorker' in navigator) {
     if (!file) { if (errorEl) errorEl.textContent = 'Choose a chart screenshot first.'; return null; }
     const form = new FormData();
     form.append('file', file);
+    // Sprint 20 Phase 5 -- the vision model can't read "session" off a
+    // screenshot, so pass in the CURRENTLY detected session (the same
+    // call fillJournalFromExtraction already made, just moved earlier)
+    // as a hint -- lets the live pre-trade similarity comparison use
+    // session as a fingerprint dimension too, not just already-saved
+    // trades. Best-effort: on failure, this candidate simply skips the
+    // session dimension, same as it always has.
+    try {
+      const sessionData = await apiFetch('/api/v1/tools/session-detect', { method: 'POST', body: JSON.stringify({}) });
+      const sessionOption = mapPrimarySessionToOption(sessionData.primarySession);
+      if (sessionOption) form.append('session_hint', sessionOption);
+    } catch (e) { /* best-effort only -- proceed without a session hint */ }
     try {
       const data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
       lastSetupExtraction = data.extraction;
@@ -6117,6 +6256,7 @@ if ('serviceWorker' in navigator) {
   window.aiImportMt5Trades = importMt5Trades;
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiLoadPlaybook = loadPlaybook;
+  window.aiLoadEdgePatterns = loadEdgePatterns;
   window.aiRunPretrade = runPretradeCheck;
   window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
@@ -6138,6 +6278,10 @@ if ('serviceWorker' in navigator) {
   window.renderSimilarTradesCards = renderSimilarTradesCards;
   window.renderJournalScreenshots = renderJournalScreenshots;
   window.loadTradeDetailInsight = loadTradeDetailInsight;
+  // Sprint 20 Phase 5 -- showSimilarTradesForRow (the OTHER script
+  // block) calls this bare, same cross-block-scoping fix as the three
+  // above.
+  window.renderCurrentSetupScreenshotHtml = renderCurrentSetupScreenshotHtml;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
