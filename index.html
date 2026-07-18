@@ -1668,9 +1668,9 @@ body::before {
         <textarea class="form-textarea" id="j-notes" placeholder="Session, emotions, market context, screenshots..."></textarea>
       </div>
       <div class="form-group" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:0.5rem;">
-        <label class="form-label">AI Review (after close)</label>
-        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Add an exit price above, then get a plain-language review of what worked, what went wrong, and the one lesson worth remembering.</div>
-        <button class="btn" onclick="aiRunTradeReview()">Get AI Review</button>
+        <label class="form-label">Analyze Trade (after close)</label>
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.5rem;">Add an exit price above, then get a plain-language review of what worked, what went wrong, the one lesson worth remembering, and -- for a loss -- the possible reasons why, compared against your own similar trades.</div>
+        <button class="btn" onclick="aiRunTradeReview()">Analyze Trade</button>
         <div id="ai-review-output" style="margin-top:0.75rem;"></div>
       </div>
     </div>
@@ -4737,10 +4737,17 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Your Edge (Best Pattern)</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Once "My Best Setups" above looks at one thing at a time (just POI type), this looks at the FULL combination &mdash; pair, direction, timeframe, POI type, premium/discount zone, and session all matching at once &mdash; and ranks whichever exact combinations you've actually repeated enough times to call a real pattern. Entirely discovered from your own history; nothing here is a fixed "good setup."</p>
-    <button class="btn" onclick="aiLoadEdgePatterns()">Find my best pattern</button>
+    <h3 style="margin-bottom:0.25rem;">Your Edge (Best &amp; Worst Patterns)</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Once "My Best Setups" above looks at one thing at a time (just POI type), this looks at the FULL combination &mdash; pair, direction, timeframe, POI type, premium/discount zone, and session all matching at once &mdash; and ranks whichever exact combinations you've actually repeated enough times to call a real pattern, best and worst. Entirely discovered from your own history; nothing here is a fixed "good setup."</p>
+    <button class="btn" onclick="aiLoadEdgePatterns()">Find my best &amp; worst patterns</button>
     <div id="ai-edge-patterns-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Patterns Learned From Your Screenshots</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Looks across your ENTIRE trade history at once (not one setup at a time) and states, in plain language, what actually separates your winning trades from your losing trades &mdash; e.g. "your winning trades usually happen in the London session; your losing trades don't." Only shown once there's enough of both to say something real.</p>
+    <button class="btn" onclick="aiLoadDiscoveredPatterns()">Learn from my screenshots</button>
+    <div id="ai-discovered-patterns-output" style="margin-top:1rem;"></div>
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
@@ -5183,6 +5190,22 @@ if ('serviceWorker' in navigator) {
   // (GET /coach/edge-patterns -> edge_pattern_engine.py). Same card
   // style as loadPlaybook() above, just describing a full combination
   // instead of a single POI type.
+  function _renderEdgePatternCard(p) {
+    const rateColor = p.winRate >= 60 ? 'var(--green)' : (p.winRate < 40 ? 'var(--red)' : 'var(--text-secondary)');
+    return '<div style="flex:1 1 280px;min-width:260px;max-width:340px;border:1px solid var(--border);background:var(--bg-input);border-radius:8px;padding:0.75rem;">' +
+      '<div style="font-weight:700;margin-bottom:0.3rem;">' + escapeHtml(p.pair || '') +
+        (p.direction ? ' &middot; ' + escapeHtml(String(p.direction).toUpperCase()) : '') +
+        (p.timeframe ? ' &middot; ' + escapeHtml(p.timeframe) : '') +
+      '</div>' +
+      '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
+        escapeHtml(p.poiType || '') + (p.premiumDiscount ? ' &middot; ' + escapeHtml(p.premiumDiscount) : '') + (p.session ? ' &middot; ' + escapeHtml(p.session) : '') +
+      '</div>' +
+      '<div style="font-size:0.85rem;color:' + rateColor + ';font-weight:600;">' + Math.round(p.winRate) + '% win rate</div>' +
+      '<div style="font-size:0.78rem;color:var(--text-secondary);">' + p.wins + ' won, ' + p.losses + ' lost' + (p.breakeven ? ', ' + p.breakeven + ' breakeven' : '') + ' of ' + p.count + ' trades</div>' +
+      (p.averageRr != null ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Avg R:R ' + Number(p.averageRr).toFixed(2) + '</div>' : '') +
+    '</div>';
+  }
+
   async function loadEdgePatterns() {
     const el = document.getElementById('ai-edge-patterns-output');
     if (!el) return;
@@ -5190,29 +5213,49 @@ if ('serviceWorker' in navigator) {
     try {
       const data = await apiFetch('/api/v1/coach/edge-patterns');
       const patterns = data.patterns || [];
+      // Sprint 20 Phase 6 -- "My Worst BTCUSD Sell": the same
+      // combination ranking, read from the bottom instead of the top.
+      const worstPatterns = data.worstPatterns || [];
       if (!patterns.length) {
         el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">No single pair+direction+timeframe+POI+zone+session combination has repeated enough times yet -- keep journaling with the full screenshot fingerprint and a pattern will surface here on its own.</div>';
         return;
       }
       el.innerHTML =
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">BEST PATTERNS</div>' +
         '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;">' +
-        patterns.map(function (p) {
-          const rateColor = p.winRate >= 60 ? 'var(--green)' : (p.winRate < 40 ? 'var(--red)' : 'var(--text-secondary)');
-          return '<div style="flex:1 1 280px;min-width:260px;max-width:340px;border:1px solid var(--border);background:var(--bg-input);border-radius:8px;padding:0.75rem;">' +
-            '<div style="font-weight:700;margin-bottom:0.3rem;">' + escapeHtml(p.pair || '') +
-              (p.direction ? ' &middot; ' + escapeHtml(String(p.direction).toUpperCase()) : '') +
-              (p.timeframe ? ' &middot; ' + escapeHtml(p.timeframe) : '') +
-            '</div>' +
-            '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
-              escapeHtml(p.poiType || '') + (p.premiumDiscount ? ' &middot; ' + escapeHtml(p.premiumDiscount) : '') + (p.session ? ' &middot; ' + escapeHtml(p.session) : '') +
-            '</div>' +
-            '<div style="font-size:0.85rem;color:' + rateColor + ';font-weight:600;">' + Math.round(p.winRate) + '% win rate</div>' +
-            '<div style="font-size:0.78rem;color:var(--text-secondary);">' + p.wins + ' won, ' + p.losses + ' lost' + (p.breakeven ? ', ' + p.breakeven + ' breakeven' : '') + ' of ' + p.count + ' trades</div>' +
-            (p.averageRr != null ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Avg R:R ' + Number(p.averageRr).toFixed(2) + '</div>' : '') +
-          '</div>';
-        }).join('') +
+        patterns.map(_renderEdgePatternCard).join('') +
         '</div>' +
+        (worstPatterns.length
+          ? '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin:0.9rem 0 0.4rem;">WORST PATTERNS</div>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;">' +
+            worstPatterns.map(_renderEdgePatternCard).join('') +
+            '</div>'
+          : '') +
         '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Based on ' + data.sampleSize + ' logged trades.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  // Sprint 20 Phase 6 -- "learn from my screenshots": standalone
+  // narrative statements about what separates this trader's own
+  // winning trades from their losing trades, discovered across their
+  // whole history at once (GET /coach/discovered-patterns ->
+  // pattern_discovery_engine.py). No candidate setup needed here.
+  async function loadDiscoveredPatterns() {
+    const el = document.getElementById('ai-discovered-patterns-output');
+    if (!el) return;
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/discovered-patterns');
+      const patterns = data.patterns || [];
+      if (!data.hasEnoughData || !patterns.length) {
+        el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Not enough winning and losing trades yet to compare -- keep journaling with the full screenshot fingerprint and real patterns will surface here.</div>';
+        return;
+      }
+      el.innerHTML = patterns.map(function (p) {
+        return '<div class="review-item" style="font-size:0.85rem;">&#8226; ' + escapeHtml(p) + '</div>';
+      }).join('');
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
     }
@@ -5381,10 +5424,32 @@ if ('serviceWorker' in navigator) {
     const summaryHtml = (gaps && gaps.winnerMatchSummary)
       ? '<div class="review-item" style="font-size:0.85rem;font-weight:600;">' + escapeHtml(gaps.winnerMatchSummary) + '</div>'
       : '';
-    if (!gapLines.length && !summaryHtml) return '';
+    // Sprint 20 Phase 6 -- "Compared with your winning trades" checklist:
+    // a short ✓/✗ label per evaluable characteristic (matches the
+    // trader's own worked example -- "✓ Same Pair / Missing: ✗ Fresh
+    // Liquidity Sweep"), instead of only prose sentences for the gaps.
+    const checklist = (gaps && gaps.winnerChecklist) || [];
+    const matchedRows = checklist.filter(function (r) { return r.matched; });
+    const missingRows = checklist.filter(function (r) { return !r.matched; });
+    const checklistHtml = checklist.length
+      ? '<div class="review-item" style="font-size:0.85rem;">' +
+          '<div style="font-weight:600;margin-bottom:0.2rem;">Compared with your winning trades:</div>' +
+          matchedRows.map(function (r) {
+            return '<div><span style="color:var(--green);font-weight:700;">✓</span> ' + escapeHtml(r.label) + '</div>';
+          }).join('') +
+          (missingRows.length
+            ? '<div style="margin-top:0.3rem;font-weight:600;">Missing:</div>' +
+              missingRows.map(function (r) {
+                return '<div><span style="color:var(--red);font-weight:700;">✗</span> ' + escapeHtml(r.label) + '</div>';
+              }).join('')
+            : '') +
+        '</div>'
+      : '';
+    if (!gapLines.length && !summaryHtml && !checklistHtml) return '';
     return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
         '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">VS. YOUR WINNERS &amp; LOSERS</div>' +
         summaryHtml +
+        checklistHtml +
         gapLines.map(function (line) {
           return '<div class="review-item" style="font-size:0.85rem;">' + escapeHtml(line) + '</div>';
         }).join('') +
@@ -5451,8 +5516,16 @@ if ('serviceWorker' in navigator) {
                 const markColor = b.matched ? 'var(--green)' : 'var(--red)';
                 const mark = b.matched ? '✓' : '✗';
                 const verb = b.matched ? 'Same' : 'Different';
+                // Sprint 20 Phase 6 -- "explain the similarity score":
+                // each dimension's actual signed point contribution
+                // toward the overall percentage, e.g. "(+20%)"/"(-10%)",
+                // not just a bare checkmark.
+                const pts = (typeof b.points === 'number') ? b.points : null;
+                const ptsHtml = pts !== null
+                  ? ' <span style="color:' + markColor + ';">(' + (pts >= 0 ? '+' : '') + pts + '%)</span>'
+                  : '';
                 return '<div style="font-size:0.72rem;color:var(--text-secondary);">' +
-                  '<span style="color:' + markColor + ';font-weight:700;">' + mark + '</span> ' + verb + ' ' + escapeHtml(b.label) +
+                  '<span style="color:' + markColor + ';font-weight:700;">' + mark + '</span> ' + verb + ' ' + escapeHtml(b.label) + ptsHtml +
                 '</div>';
               }).join('')
             : '';
@@ -5814,11 +5887,22 @@ if ('serviceWorker' in navigator) {
     };
     try {
       const data = await apiFetch('/api/v1/coach/review-trade', { method: 'POST', body: JSON.stringify(body) });
+      // Sprint 20 Phase 6 -- "Analyze Trade": for a losing trade, why it
+      // likely didn't work out -- purely pattern-matched against this
+      // trader's own similar losing/winning trades, never a fixed rule.
+      const analyzeHtml = (data.possibleReasons && data.possibleReasons.length)
+        ? '<div class="review-item" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' +
+            '<div style="font-weight:600;margin-bottom:0.2rem;">Possible reasons this trade failed:</div>' +
+            data.possibleReasons.map(function (r) { return '&#8226; ' + escapeHtml(r); }).join('<br>') +
+            (data.mostLikelyCause ? '<div style="margin-top:0.4rem;"><strong>Most likely cause:</strong> ' + escapeHtml(data.mostLikelyCause) + '</div>' : '') +
+          '</div>'
+        : '';
       el.innerHTML =
         '<div class="review-item"><strong>' + escapeHtml(data.headline) + '</strong></div>' +
         (data.whatWorked.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.whatWorked.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
         (data.whatWentWrong.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.whatWentWrong.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
         '<div class="review-item"><strong>Lesson:</strong> ' + escapeHtml(data.lesson) + '</div>' +
+        analyzeHtml +
         renderLessonSection({
           hasEnoughHistory: data.hasEnoughHistory,
           sampleSize: data.similarSampleSize,
@@ -6257,6 +6341,7 @@ if ('serviceWorker' in navigator) {
   window.aiLoadCoach = loadCoachDeepDive;
   window.aiLoadPlaybook = loadPlaybook;
   window.aiLoadEdgePatterns = loadEdgePatterns;
+  window.aiLoadDiscoveredPatterns = loadDiscoveredPatterns;
   window.aiRunPretrade = runPretradeCheck;
   window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
