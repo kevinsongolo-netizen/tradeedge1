@@ -1344,6 +1344,32 @@ body::before {
         <button class="filter-chip" data-filter="indices">Indices</button>
         <button class="filter-chip" data-filter="commodities">Commodities</button>
       </div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.6rem;">
+        <input type="text" class="form-input" id="j-search-text" placeholder="Search pair or notes..." style="width:auto;min-width:160px;" oninput="renderJournal()">
+        <select class="form-select" id="j-search-poi" style="width:auto;" onchange="renderJournal()">
+          <option value="">Any setup</option>
+          <option value="Bullish OB">Bullish OB</option>
+          <option value="Bearish OB">Bearish OB</option>
+          <option value="Bullish FVG">Bullish FVG</option>
+          <option value="Bearish FVG">Bearish FVG</option>
+          <option value="Equilibrium">Equilibrium</option>
+          <option value="Premium">Premium</option>
+          <option value="Discount">Discount</option>
+          <option value="Other">Other</option>
+        </select>
+        <select class="form-select" id="j-search-session" style="width:auto;" onchange="renderJournal()">
+          <option value="">Any session</option>
+          <option value="Asian">Asian</option>
+          <option value="London">London</option>
+          <option value="New York">New York</option>
+          <option value="London/NY Overlap">London/NY Overlap</option>
+          <option value="Other">Other</option>
+        </select>
+        <input type="date" class="form-input" id="j-search-date-from" style="width:auto;" onchange="renderJournal()" title="From date">
+        <input type="date" class="form-input" id="j-search-date-to" style="width:auto;" onchange="renderJournal()" title="To date">
+        <button class="btn btn-sm" onclick="clearJournalSearch()">Clear search</button>
+      </div>
+      <div id="journal-similar-search-output" style="margin-top:0.75rem;"></div>
     </div>
     <div class="journal-table-wrap">
       <table class="journal-table">
@@ -1470,6 +1496,17 @@ body::before {
       <button class="btn-icon" onclick="closeJournalModal()">✕</button>
     </div>
     <div class="modal-body">
+      <div id="journal-detail-panel" style="display:none;border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;background:var(--bg-input);">
+        <div id="journal-screenshots-row" style="display:flex;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;"></div>
+        <div class="form-group" id="journal-exit-screenshot-group" style="display:none;margin-bottom:0.5rem;">
+          <label class="form-label">Attach After-Exit Screenshot (optional)</label>
+          <input type="file" class="form-input" id="j-exit-screenshot-file" accept="image/png,image/jpeg,image/webp" onchange="uploadExitScreenshot(event)">
+          <div id="journal-exit-screenshot-status" style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.35rem;"></div>
+        </div>
+        <div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">MOST SIMILAR TRADES</div>
+        <div id="journal-similar-output"><div class="review-item" style="color:var(--text-muted);">Loading...</div></div>
+        <div id="journal-lesson-output"></div>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Date</label>
@@ -2907,16 +2944,46 @@ function calculateRR() {
   if (rr) rrField.value = rr; // leave manual value untouched if SL/TP incomplete
 }
 
+// Sprint 20 Phase 3 -- screenshot upload state shared with the OTHER
+// <script> block (the one wrapped in "(function () { ... })()" further
+// down the page, holding fillJournalFromExtraction/uploadExitScreenshot/
+// analyzeSetupScreenshot). Declared here, at this script's top level
+// (not inside any function/IIFE), so it's genuinely global and reachable
+// by plain identifier from both scripts -- see the comment next to
+// lastSetupScreenshotUrl in the other block for why it can't just live
+// there instead.
+let pendingEntryScreenshotUrl = null;
+let pendingExitScreenshotUrl = null;
+
 function openJournalModal(editId) {
   state.editingId = editId || null;
   const modal = document.getElementById('journal-modal');
   const title = document.getElementById('modal-title');
 
+  // Sprint 20 Phase 3 -- screenshots + "Most Similar Trades"/lesson only
+  // make sense for a trade that's already logged (a blank Log Trade form
+  // has no history to compare against yet). Pending upload state always
+  // resets on open -- it's re-populated either from the Chart Analysis
+  // flow (fillJournalFromExtraction, right after this call) or a fresh
+  // exit-screenshot upload during this edit session.
+  pendingEntryScreenshotUrl = null;
+  pendingExitScreenshotUrl = null;
+  const detailPanel = document.getElementById('journal-detail-panel');
+  const exitShotGroup = document.getElementById('journal-exit-screenshot-group');
+  if (detailPanel) detailPanel.style.display = editId ? '' : 'none';
+  if (exitShotGroup) exitShotGroup.style.display = editId ? '' : 'none';
+  const exitShotStatus = document.getElementById('journal-exit-screenshot-status');
+  if (exitShotStatus) { exitShotStatus.textContent = ''; }
+  const exitShotFile = document.getElementById('j-exit-screenshot-file');
+  if (exitShotFile) exitShotFile.value = '';
+
   if (editId) {
     title.textContent = 'Edit Trade';
     const journal = getCurrentJournal();
     const entry = journal.find(e => e.id === editId);
+    renderJournalScreenshots(entry || null);
     if (entry) {
+      loadTradeDetailInsight(editId);
       document.getElementById('j-date').value = entry.date;
       document.getElementById('j-pair').value = entry.pair;
       document.getElementById('j-direction').value = entry.direction;
@@ -2966,6 +3033,7 @@ function openJournalModal(editId) {
     document.getElementById('calculated-pl-display').textContent = '$0.00';
     document.getElementById('calculated-pl-display').style.color = 'var(--text-muted)';
     resetTags();
+    renderJournalScreenshots(null);
   }
 
   modal.classList.add('visible');
@@ -3000,12 +3068,14 @@ function saveJournalEntry() {
 
   if (!date || !pair) { showToast('Please fill in at least the date and pair.', 'error'); return; }
 
-  const entryData = { 
+  const entryData = {
     date, pair, direction, asset, entry, exit, lots, sl, tp, pnl, rr, poi, session, exitReason,
-    rulesFollowed, worked, failed, notes, workedTags, failedTags 
+    rulesFollowed, worked, failed, notes, workedTags, failedTags
   };
 
   const journal = getCurrentJournal();
+  const existingEntry = state.editingId ? journal.find(e => e.id === state.editingId) : null;
+  entryData.screenshots = buildScreenshotsForSave(existingEntry ? existingEntry.screenshots : []);
 
   if (state.editingId) {
     const idx = journal.findIndex(e => e.id === state.editingId);
@@ -3015,9 +3085,30 @@ function saveJournalEntry() {
     journal.unshift(entryData);
   }
 
+  pendingEntryScreenshotUrl = null;
+  pendingExitScreenshotUrl = null;
+
   saveJournal();
   renderJournal();
   closeJournalModal();
+}
+
+// Sprint 20 Phase 3 -- merges whatever screenshot(s) were just uploaded
+// during this modal session (entry from Chart Analysis, exit from the
+// in-modal file input) into the entry's existing screenshots[], keeping
+// at most one of each kind (a re-upload of the same kind replaces, never
+// duplicates) and leaving anything else untouched.
+function buildScreenshotsForSave(existingScreenshots) {
+  let shots = (existingScreenshots || []).slice();
+  if (pendingEntryScreenshotUrl) {
+    shots = shots.filter(function (s) { return s.kind !== 'entry'; });
+    shots.push({ url: pendingEntryScreenshotUrl, kind: 'entry', uploadedAt: new Date().toISOString() });
+  }
+  if (pendingExitScreenshotUrl) {
+    shots = shots.filter(function (s) { return s.kind !== 'exit'; });
+    shots.push({ url: pendingExitScreenshotUrl, kind: 'exit', uploadedAt: new Date().toISOString() });
+  }
+  return shots;
 }
 
 async function deleteJournalEntry(id) {
@@ -3073,7 +3164,35 @@ function renderJournal() {
   const f = state.filter;
   if (f === 'win') entries = entries.filter(e => e.pnl > 0);
   else if (f === 'loss') entries = entries.filter(e => e.pnl < 0);
-  else if (f === 'forex' || f === 'crypto' || f === 'indices') entries = entries.filter(e => e.asset === f);
+  else if (['forex', 'metals', 'crypto', 'indices', 'commodities'].indexOf(f) !== -1) entries = entries.filter(e => e.asset === f);
+
+  // Sprint 20 Phase 3 #7 -- search/filter by pair, notes, setup (POI),
+  // session, and date range, on top of the existing win/loss/asset
+  // chips above. All client-side over the already-loaded journal --
+  // no backend round-trip needed for a search this small.
+  const searchTextEl = document.getElementById('j-search-text');
+  const searchPoiEl = document.getElementById('j-search-poi');
+  const searchSessionEl = document.getElementById('j-search-session');
+  const searchDateFromEl = document.getElementById('j-search-date-from');
+  const searchDateToEl = document.getElementById('j-search-date-to');
+  const searchText = (searchTextEl && searchTextEl.value || '').trim().toLowerCase();
+  const searchPoi = searchPoiEl && searchPoiEl.value || '';
+  const searchSession = searchSessionEl && searchSessionEl.value || '';
+  const searchDateFrom = searchDateFromEl && searchDateFromEl.value || '';
+  const searchDateTo = searchDateToEl && searchDateToEl.value || '';
+
+  if (searchText) {
+    entries = entries.filter(e =>
+      ((e.pair || '').toLowerCase().indexOf(searchText) !== -1) ||
+      ((e.notes || '').toLowerCase().indexOf(searchText) !== -1) ||
+      ((e.worked || '').toLowerCase().indexOf(searchText) !== -1) ||
+      ((e.failed || '').toLowerCase().indexOf(searchText) !== -1)
+    );
+  }
+  if (searchPoi) entries = entries.filter(e => e.poi === searchPoi);
+  if (searchSession) entries = entries.filter(e => e.session === searchSession);
+  if (searchDateFrom) entries = entries.filter(e => e.date && e.date >= searchDateFrom);
+  if (searchDateTo) entries = entries.filter(e => e.date && e.date <= searchDateTo);
 
   // Sort by date descending
   entries.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -3145,10 +3264,47 @@ function renderJournal() {
       <td class="notes-cell" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>
       <td>
         <button class="rule-action-btn" onclick="openJournalModal('${e.id}')" title="Edit">✎</button>
+        <button class="rule-action-btn" onclick="event.stopPropagation(); showSimilarTradesForRow('${e.id}')" title="Find trades similar to this one">🔍</button>
         <button class="rule-action-btn delete" onclick="deleteJournalEntry('${e.id}')" title="Delete">✕</button>
       </td>
     </tr>`;
   }).join('');
+}
+
+// Sprint 20 Phase 3 #7 -- "search by screenshot similarity" in
+// practice: the app doesn't do pixel/image-embedding matching (that
+// needs real ML training infrastructure this project doesn't have),
+// but the same weighted structural similarity that already powers
+// "Most Similar Trades" everywhere else (same pair/direction/POI/
+// trend/stop-target sizing/...) answers the question a trader
+// actually means by that -- "find trades that looked and were set up
+// like this one" -- so this reuses GET /trades/{id}/insight directly.
+async function showSimilarTradesForRow(tradeId) {
+  const el = document.getElementById('journal-similar-search-output');
+  if (!el) return;
+  el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Finding similar trades...</div>';
+  try {
+    const data = await apiFetch('/api/v1/trades/' + encodeURIComponent(tradeId) + '/insight');
+    const cardsHtml = renderSimilarTradesCards(data.insight && data.insight.topSimilar);
+    el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">SIMILAR TO THIS TRADE</div>' +
+        '<button class="btn btn-sm" onclick="document.getElementById(\'journal-similar-search-output\').innerHTML=\'\'">Close</button>' +
+      '</div>' +
+      (cardsHtml || '<div class="review-item" style="color:var(--text-muted);">No similar trades found yet.</div>');
+  } catch (e) {
+    el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Could not load similar trades -- sync this trade to the AI backend first (Sync to AI Backend, in AI Insights).</div>';
+  }
+}
+
+function clearJournalSearch() {
+  const ids = ['j-search-text', 'j-search-poi', 'j-search-session', 'j-search-date-from', 'j-search-date-to'];
+  ids.forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const simEl = document.getElementById('journal-similar-search-output');
+  if (simEl) simEl.innerHTML = '';
+  renderJournal();
 }
 
 // Filter chips
@@ -4541,6 +4697,13 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">My Best Setups</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Win rate, R:R, best session/day, and example screenshots per point-of-interest type &mdash; ranked purely from your own logged trades, not a fixed list of "good" setups. Each one needs at least a few logged trades before it shows up here.</p>
+    <button class="btn" onclick="aiLoadPlaybook()">Load my best setups</button>
+    <div id="ai-playbook-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
     <div class="form-group">
@@ -4667,6 +4830,7 @@ if ('serviceWorker' in navigator) {
       failed: t.failed || null,
       workedTags: t.workedTags || [],
       failedTags: t.failedTags || [],
+      screenshots: t.screenshots || [],
     };
   }
 
@@ -4925,6 +5089,50 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Sprint 20 Phase 3 #6 -- "My Best Setups": one card per POI type the
+  // trader has logged enough times to mean something, ranked purely
+  // from their own history (GET /coach/playbook -> playbook_engine.py).
+  async function loadPlaybook() {
+    const el = document.getElementById('ai-playbook-output');
+    if (!el) return;
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/playbook');
+      const setups = data.setups || [];
+      if (!setups.length) {
+        el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Not enough logged trades per setup yet -- keep journaling and this fills in on its own.</div>';
+        return;
+      }
+      el.innerHTML =
+        '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;">' +
+        setups.map(function (s) {
+          const rateColor = s.winRate >= 60 ? 'var(--green)' : (s.winRate < 40 ? 'var(--red)' : 'var(--text-secondary)');
+          const shotsHtml = (s.exampleScreenshots && s.exampleScreenshots.length)
+            ? '<div style="display:flex;gap:0.4rem;margin-top:0.5rem;">' +
+                s.exampleScreenshots.map(function (url) {
+                  return '<a href="' + encodeURI(url) + '" target="_blank" rel="noopener">' +
+                    '<img src="' + encodeURI(url) + '" style="width:90px;height:60px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">' +
+                  '</a>';
+                }).join('') +
+              '</div>'
+            : '';
+          return '<div style="flex:1 1 260px;min-width:240px;max-width:320px;border:1px solid var(--border);background:var(--bg-input);border-radius:8px;padding:0.75rem;">' +
+            '<div style="font-weight:700;margin-bottom:0.3rem;">' + escapeHtml(s.poiType) + '</div>' +
+            '<div style="font-size:0.85rem;color:' + rateColor + ';font-weight:600;">' + Math.round(s.winRate) + '% win rate</div>' +
+            '<div style="font-size:0.78rem;color:var(--text-secondary);">' + s.wins + ' won, ' + s.losses + ' lost' + (s.breakeven ? ', ' + s.breakeven + ' breakeven' : '') + ' of ' + s.count + '</div>' +
+            (s.averageRr != null ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Avg R:R ' + Number(s.averageRr).toFixed(2) + '</div>' : '') +
+            (s.bestSession ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Best session: ' + escapeHtml(s.bestSession) + (s.bestSessionWinRate != null ? ' (' + Math.round(s.bestSessionWinRate) + '%)' : '') + '</div>' : '') +
+            (s.bestDay ? '<div style="font-size:0.78rem;color:var(--text-secondary);">Best day: ' + escapeHtml(s.bestDay) + (s.bestDayWinRate != null ? ' (' + Math.round(s.bestDayWinRate) + '%)' : '') + '</div>' : '') +
+            shotsHtml +
+          '</div>';
+        }).join('') +
+        '</div>' +
+        '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Based on ' + data.sampleSize + ' logged trades.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
   // Sprint 20 -- screenshot-first workflow. Both Pre-Trade Check and
   // Chart Analysis Engine call the same backend endpoint
   // (/chart/full-analysis/image) and render the same shape:
@@ -4933,6 +5141,24 @@ if ('serviceWorker' in navigator) {
   // history (similarity %, win/loss counts, risk notes), never a
   // VALID/INVALID/TAKE/WAIT gate. The decision stays with you.
   let lastSetupExtraction = null;
+  // Sprint 20 Phase 3 -- the same screenshot just read by Chart Analysis
+  // Engine / Pre-Trade Check, now permanently saved (see
+  // ChartService.full_analysis_from_image -> app/media/image_storage.py).
+  // null whenever screenshot storage isn't configured yet or the upload
+  // failed -- fillJournalFromExtraction() only attaches it when present.
+  let lastSetupScreenshotUrl = null;
+  // NOTE: pendingEntryScreenshotUrl/pendingExitScreenshotUrl are declared
+  // at the top level of the OTHER <script> block (with renderJournal/
+  // openJournalModal/saveJournalEntry) rather than here, deliberately --
+  // this whole block is wrapped in an IIFE (see the opening
+  // "(function () {" a few lines up), so a `let` declared in here is
+  // private to this closure and invisible to that other script block.
+  // Those functions need to read AND write these two, so they have to
+  // live somewhere both scripts can see -- the other script's top level
+  // isn't wrapped in an IIFE, so a plain `let` there is genuinely global
+  // and reachable from this closure too (classic <script> tags share one
+  // global scope). Declaring them there and only referencing them by
+  // name here still works correctly via normal scope-chain lookup.
 
   function mapPoiTypeToOption(poiType) {
     if (!poiType) return '';
@@ -5021,36 +5247,68 @@ if ('serviceWorker' in navigator) {
     // gets its own card (similarity %, outcome, R-multiple) plus the
     // specific reasons the backend's similarity engine found it similar
     // (same direction, similar stop size, same POI type, ...) instead of
-    // a plain one-line list with no explanation of "why".
-    const topSimilarHtml = (insight.topSimilar && insight.topSimilar.length)
-      ? '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
-          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">MOST SIMILAR TRADES</div>' +
-          '<div style="display:flex;flex-wrap:wrap;gap:0.6rem;">' +
-          insight.topSimilar.map(function (s, i) {
-            const isWin = s.outcome === 'Win';
-            const isLoss = s.outcome === 'Loss';
-            const color = isWin ? 'var(--green)' : (isLoss ? 'var(--red)' : 'var(--text-muted)');
-            const bg = isWin ? 'var(--green-dim)' : (isLoss ? 'rgba(220,80,80,0.08)' : 'var(--bg-input)');
-            const reasonsHtml = (s.reasons && s.reasons.length)
-              ? '<div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.35rem;">' +
-                  s.reasons.map(function (r) { return '&#8226; ' + escapeHtml(r); }).join('<br>') +
-                '</div>'
-              : '';
-            return '<div style="flex:1 1 220px;min-width:200px;max-width:280px;border:1px solid ' + color + ';background:' + bg + ';border-radius:8px;padding:0.6rem 0.75rem;">' +
-              '<div style="font-size:0.72rem;color:var(--text-muted);">Trade #' + (i + 1) + (s.date ? ' &middot; ' + escapeHtml(s.date) : '') + '</div>' +
-              '<div style="font-size:0.95rem;font-weight:700;color:' + color + ';margin-top:0.15rem;">' + Math.round(s.similarity) + '% Similar</div>' +
-              '<div style="font-size:0.85rem;margin-top:0.1rem;"><strong style="color:' + color + ';">' + escapeHtml(s.outcome || '') + '</strong>' +
-                (s.rMultiple ? ' &middot; <strong>' + escapeHtml(s.rMultiple) + '</strong>' : '') +
-                (s.pnl != null ? ' &middot; $' + Number(s.pnl).toFixed(2) : '') +
-              '</div>' +
-              reasonsHtml +
-            '</div>';
-          }).join('') +
-          '</div>' +
-        '</div>'
-      : '';
+    // a plain one-line list with no explanation of "why". Shared with
+    // the Sprint 20 Phase 3 journal trade detail view -- see
+    // renderSimilarTradesCards().
+    const topSimilarHtml = renderSimilarTradesCards(insight.topSimilar);
 
     el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml;
+  }
+
+  // Sprint 20 Phase 2/3 -- "MOST SIMILAR TRADES" cards, shared by the
+  // pre-trade Chart Analysis Engine insight (renderSetupInsight, above)
+  // and the journal trade detail view (loadTradeDetailInsight, below) --
+  // "similar" means the exact same thing (and looks the same) in both
+  // places since they're both rendering the same backend shape
+  // (SimilarTradeSummary[]).
+  function renderSimilarTradesCards(topSimilar) {
+    if (!topSimilar || !topSimilar.length) return '';
+    return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">MOST SIMILAR TRADES</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.6rem;">' +
+        topSimilar.map(function (s, i) {
+          const isWin = s.outcome === 'Win';
+          const isLoss = s.outcome === 'Loss';
+          const color = isWin ? 'var(--green)' : (isLoss ? 'var(--red)' : 'var(--text-muted)');
+          const bg = isWin ? 'var(--green-dim)' : (isLoss ? 'rgba(220,80,80,0.08)' : 'var(--bg-input)');
+          const reasonsHtml = (s.reasons && s.reasons.length)
+            ? '<div style="font-size:0.74rem;color:var(--text-secondary);margin-top:0.35rem;">' +
+                s.reasons.map(function (r) { return '&#8226; ' + escapeHtml(r); }).join('<br>') +
+              '</div>'
+            : '';
+          return '<div style="flex:1 1 220px;min-width:200px;max-width:280px;border:1px solid ' + color + ';background:' + bg + ';border-radius:8px;padding:0.6rem 0.75rem;">' +
+            '<div style="font-size:0.72rem;color:var(--text-muted);">Trade #' + (i + 1) + (s.date ? ' &middot; ' + escapeHtml(s.date) : '') + '</div>' +
+            '<div style="font-size:0.95rem;font-weight:700;color:' + color + ';margin-top:0.15rem;">' + Math.round(s.similarity) + '% Similar</div>' +
+            '<div style="font-size:0.85rem;margin-top:0.1rem;"><strong style="color:' + color + ';">' + escapeHtml(s.outcome || '') + '</strong>' +
+              (s.rMultiple ? ' &middot; <strong>' + escapeHtml(s.rMultiple) + '</strong>' : '') +
+              (s.pnl != null ? ' &middot; $' + Number(s.pnl).toFixed(2) : '') +
+            '</div>' +
+            reasonsHtml +
+          '</div>';
+        }).join('') +
+        '</div>' +
+      '</div>';
+  }
+
+  // Sprint 20 Phase 2/4 -- the "vs. your own history" planned-vs-actual
+  // block, shared by the AI Review (after close) button (runTradeReview,
+  // below) and the journal trade detail view (loadTradeDetailInsight).
+  // Accepts the common shape {hasEnoughHistory, sampleSize, wins, losses,
+  // lessons, patterns} -- runTradeReview() maps TradeReviewResult's
+  // similarSampleSize/similarWins/similarLosses field names onto it.
+  function renderLessonSection(lesson) {
+    if (!lesson) return '';
+    const lessonsHtml = (lesson.lessons && lesson.lessons.length) ? '<br>' + lesson.lessons.map(escapeHtml).join('<br>') : '';
+    const patternsHtml = (lesson.patterns && lesson.patterns.length) ? '<br>' + lesson.patterns.map(escapeHtml).join('<br>') : '';
+    if (lesson.hasEnoughHistory) {
+      return '<div class="review-item" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' +
+          '<strong>Vs. your own history</strong> <span style="color:var(--text-muted);font-size:0.8rem;">(' + lesson.wins + 'W / ' + lesson.losses + 'L of ' + lesson.sampleSize + ' similar trades)</span>' +
+          lessonsHtml + patternsHtml +
+        '</div>';
+    }
+    return lessonsHtml
+      ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' + lesson.lessons.map(escapeHtml).join('<br>') + '</div>'
+      : '';
   }
 
   async function analyzeSetupScreenshot(fileInputId, targetElId, errorElId) {
@@ -5064,6 +5322,7 @@ if ('serviceWorker' in navigator) {
     try {
       const data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
       lastSetupExtraction = data.extraction;
+      lastSetupScreenshotUrl = (data.meta && data.meta.screenshotUrl) || null;
       renderSetupInsight(targetElId, data);
       return data;
     } catch (e) {
@@ -5088,6 +5347,11 @@ if ('serviceWorker' in navigator) {
       return;
     }
     if (typeof openJournalModal === 'function') openJournalModal();
+    // Carry the screenshot Chart Analysis / Pre-Trade Check just read
+    // (and saved) straight onto this new journal entry -- no second
+    // upload needed. null when screenshot storage isn't configured yet.
+    pendingEntryScreenshotUrl = lastSetupScreenshotUrl || null;
+    renderJournalScreenshots(null);
     const setVal = function (id, value) {
       const el = document.getElementById(id);
       if (el && value !== null && value !== undefined && value !== '') el.value = value;
@@ -5219,6 +5483,96 @@ if ('serviceWorker' in navigator) {
     fillJournalFromExtraction(lastSetupExtraction);
   }
 
+  // Sprint 20 Phase 3 -- entry/exit screenshot thumbnails at the top of
+  // the trade detail view (the Edit Trade modal). Click through to the
+  // full-size image (Cloudinary URL) in a new tab. entry is null for a
+  // brand-new Log Trade with nothing saved yet.
+  function renderJournalScreenshots(entry) {
+    const row = document.getElementById('journal-screenshots-row');
+    if (!row) return;
+    const shots = (entry && entry.screenshots) || [];
+    const entryShot = shots.find(function (s) { return s.kind === 'entry'; });
+    const exitShot = shots.find(function (s) { return s.kind === 'exit'; });
+    function thumb(shot, label) {
+      if (!shot || !shot.url) return '';
+      return '<a href="' + encodeURI(shot.url) + '" target="_blank" rel="noopener" style="display:inline-block;text-align:center;text-decoration:none;">' +
+        '<img src="' + encodeURI(shot.url) + '" alt="' + label + ' screenshot" style="width:130px;height:86px;object-fit:cover;border-radius:6px;border:1px solid var(--border);display:block;">' +
+        '<div style="font-size:0.7rem;color:var(--text-muted);margin-top:2px;">' + label + '</div>' +
+      '</a>';
+    }
+    // pendingEntryScreenshotUrl covers the case where fillJournalFromExtraction
+    // just attached a fresh entry screenshot to a not-yet-saved trade --
+    // show it immediately rather than waiting for Save.
+    const effectiveEntryShot = entryShot || (pendingEntryScreenshotUrl ? { url: pendingEntryScreenshotUrl } : null);
+    const html = thumb(effectiveEntryShot, 'Entry') + thumb(exitShot, 'Exit');
+    row.innerHTML = html;
+    row.style.display = html ? 'flex' : 'none';
+  }
+
+  // Sprint 20 Phase 3 -- "Most Similar Trades" + planned-vs-actual lesson
+  // for an ALREADY-SAVED journal trade, loaded automatically the moment
+  // the Edit Trade modal opens (no button click needed) -- reuses
+  // renderSimilarTradesCards()/renderLessonSection() so this looks and
+  // reads exactly like the pre-trade Chart Analysis Engine insight.
+  async function loadTradeDetailInsight(tradeId) {
+    const simEl = document.getElementById('journal-similar-output');
+    const lessonEl = document.getElementById('journal-lesson-output');
+    if (!simEl || !lessonEl) return;
+    simEl.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Loading...</div>';
+    lessonEl.innerHTML = '';
+    try {
+      const data = await apiFetch('/api/v1/trades/' + encodeURIComponent(tradeId) + '/insight');
+      const insight = data.insight || {};
+      const cardsHtml = renderSimilarTradesCards(insight.topSimilar);
+      simEl.innerHTML = cardsHtml || (
+        '<div class="review-item" style="color:var(--text-muted);font-size:0.85rem;">' +
+        escapeHtml((insight.narrative && insight.narrative[insight.narrative.length - 1]) || 'No similar trades found yet.') +
+        '</div>'
+      );
+      lessonEl.innerHTML = renderLessonSection(data.lesson);
+    } catch (e) {
+      // Most likely this trade was logged locally but never synced to
+      // the AI backend yet (GET /trades/{id}/insight 404s on an id it's
+      // never seen) -- say so plainly rather than a raw error string.
+      simEl.innerHTML = '<div class="review-item" style="color:var(--text-muted);font-size:0.85rem;">' +
+        'Could not load similar trades yet -- sync this trade to the AI backend first (Sync to AI Backend, in AI Insights), then reopen it.' +
+        '</div>';
+    }
+  }
+
+  // Sprint 20 Phase 3 -- optional "how it actually played out" screenshot,
+  // attached to an already-logged trade with no vision re-analysis (just
+  // permanent storage). Best-effort: if Cloudinary isn't configured on
+  // the backend yet, says so plainly instead of pretending it saved.
+  async function uploadExitScreenshot(event) {
+    const file = event.target.files && event.target.files[0];
+    const statusEl = document.getElementById('journal-exit-screenshot-status');
+    if (!file || !statusEl) return;
+    statusEl.style.color = 'var(--text-secondary)';
+    statusEl.textContent = 'Uploading...';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const data = await apiFetchMultipart('/api/v1/chart/upload-screenshot', { method: 'POST', body: form });
+      if (data.url) {
+        pendingExitScreenshotUrl = data.url;
+        statusEl.style.color = 'var(--green)';
+        statusEl.textContent = 'Screenshot attached -- will be saved with this trade.';
+        const journal = getCurrentJournal();
+        const existing = state.editingId ? journal.find(function (e) { return e.id === state.editingId; }) : null;
+        renderJournalScreenshots({ screenshots: buildScreenshotsForSave(existing ? existing.screenshots : []) });
+      } else {
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = data.error
+          ? ('Could not save screenshot: ' + data.error)
+          : "Screenshot storage isn't configured on the backend yet (Cloudinary) -- nothing was saved.";
+      }
+    } catch (e) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Error: ' + e.message;
+    }
+  }
+
   async function runTradeReview() {
     const el = document.getElementById('ai-review-output');
     if (!el) return;
@@ -5252,13 +5606,14 @@ if ('serviceWorker' in navigator) {
         (data.whatWorked.length ? '<div class="review-item" style="color:var(--green)">✓ ' + data.whatWorked.map(escapeHtml).join('<br>✓ ') + '</div>' : '') +
         (data.whatWentWrong.length ? '<div class="review-item" style="color:var(--red)">✗ ' + data.whatWentWrong.map(escapeHtml).join('<br>✗ ') + '</div>' : '') +
         '<div class="review-item"><strong>Lesson:</strong> ' + escapeHtml(data.lesson) + '</div>' +
-        (data.hasEnoughHistory
-          ? '<div class="review-item" style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' +
-              '<strong>Vs. your own history</strong> <span style="color:var(--text-muted);font-size:0.8rem;">(' + data.similarWins + 'W / ' + data.similarLosses + 'L of ' + data.similarSampleSize + ' similar trades)</span>' +
-              (data.lessons.length ? '<br>' + data.lessons.map(escapeHtml).join('<br>') : '') +
-              (data.patterns.length ? '<br>' + data.patterns.map(escapeHtml).join('<br>') : '') +
-            '</div>'
-          : (data.lessons.length ? '<div class="review-item" style="color:var(--text-muted);font-size:0.8rem;border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">' + data.lessons.map(escapeHtml).join('<br>') + '</div>' : ''));
+        renderLessonSection({
+          hasEnoughHistory: data.hasEnoughHistory,
+          sampleSize: data.similarSampleSize,
+          wins: data.similarWins,
+          losses: data.similarLosses,
+          lessons: data.lessons,
+          patterns: data.patterns,
+        });
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
     }
@@ -5687,6 +6042,7 @@ if ('serviceWorker' in navigator) {
   window.aiClearAllTrades = aiClearAllTrades;
   window.aiImportMt5Trades = importMt5Trades;
   window.aiLoadCoach = loadCoachDeepDive;
+  window.aiLoadPlaybook = loadPlaybook;
   window.aiRunPretrade = runPretradeCheck;
   window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
@@ -5696,6 +6052,18 @@ if ('serviceWorker' in navigator) {
   window.aiRunNewsCheck = runNewsCheck;
   window.aiCheckMlReadiness = aiCheckMlReadiness;
   window.aiTrainMlModel = aiTrainMlModel;
+  // Sprint 20 Phase 3 -- this whole script is wrapped in the IIFE above,
+  // so these are otherwise invisible to the OTHER <script> block (the
+  // one with renderJournal/openJournalModal/saveJournalEntry/
+  // showSimilarTradesForRow), which needs to call them directly (not
+  // through an "ai..." onclick-style alias) from openJournalModal() and
+  // showSimilarTradesForRow(). Exposing them on window lets that other
+  // script's plain, unqualified references to these names resolve
+  // correctly (classic <script> tags share one global object).
+  window.apiFetch = apiFetch;
+  window.renderSimilarTradesCards = renderSimilarTradesCards;
+  window.renderJournalScreenshots = renderJournalScreenshots;
+  window.loadTradeDetailInsight = loadTradeDetailInsight;
 
   document.addEventListener('DOMContentLoaded', function () {
     const input = document.getElementById('ai-api-base-input');
