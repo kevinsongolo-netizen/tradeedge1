@@ -2954,6 +2954,17 @@ function calculateRR() {
 // there instead.
 let pendingEntryScreenshotUrl = null;
 let pendingExitScreenshotUrl = null;
+// Sprint 20 Phase 4 -- the "complete trade fingerprint" ask: carry the
+// timeframe, order type, and the FULL raw vision read (every OB/FVG/
+// BOS/CHoCH/premium-discount/etc. field the AI detected, not just what
+// the journal form shows) from the Chart Analysis screenshot straight
+// onto the trade being saved, same pattern as the screenshot URLs
+// above. Reset to null on every fresh save / new modal open so a
+// leftover fingerprint from a previous screenshot never attaches
+// itself to an unrelated trade.
+let pendingTimeframe = null;
+let pendingOrderType = null;
+let pendingVisionFingerprint = null;
 
 function openJournalModal(editId) {
   state.editingId = editId || null;
@@ -2968,6 +2979,9 @@ function openJournalModal(editId) {
   // exit-screenshot upload during this edit session.
   pendingEntryScreenshotUrl = null;
   pendingExitScreenshotUrl = null;
+  pendingTimeframe = null;
+  pendingOrderType = null;
+  pendingVisionFingerprint = null;
   const detailPanel = document.getElementById('journal-detail-panel');
   const exitShotGroup = document.getElementById('journal-exit-screenshot-group');
   if (detailPanel) detailPanel.style.display = editId ? '' : 'none';
@@ -3076,6 +3090,15 @@ function saveJournalEntry() {
   const journal = getCurrentJournal();
   const existingEntry = state.editingId ? journal.find(e => e.id === state.editingId) : null;
   entryData.screenshots = buildScreenshotsForSave(existingEntry ? existingEntry.screenshots : []);
+  // Sprint 20 Phase 4 -- carry the timeframe/orderType/full vision
+  // fingerprint read off the Chart Analysis screenshot onto this trade.
+  // Only overwrites when a fresh screenshot was actually analyzed this
+  // session (pending* non-null) -- otherwise keeps whatever the trade
+  // already had, so editing notes on an old trade doesn't wipe its
+  // fingerprint out.
+  entryData.timeframe = pendingTimeframe || (existingEntry ? existingEntry.timeframe : null) || null;
+  entryData.orderType = pendingOrderType || (existingEntry ? existingEntry.orderType : null) || null;
+  entryData.visionFingerprint = pendingVisionFingerprint || (existingEntry ? existingEntry.visionFingerprint : null) || null;
 
   if (state.editingId) {
     const idx = journal.findIndex(e => e.id === state.editingId);
@@ -3087,6 +3110,9 @@ function saveJournalEntry() {
 
   pendingEntryScreenshotUrl = null;
   pendingExitScreenshotUrl = null;
+  pendingTimeframe = null;
+  pendingOrderType = null;
+  pendingVisionFingerprint = null;
 
   saveJournal();
   renderJournal();
@@ -4831,6 +4857,10 @@ if ('serviceWorker' in navigator) {
       workedTags: t.workedTags || [],
       failedTags: t.failedTags || [],
       screenshots: t.screenshots || [],
+      // Sprint 20 Phase 4 -- the "complete trade fingerprint" fields.
+      timeframe: t.timeframe || null,
+      orderType: t.orderType || null,
+      visionFingerprint: t.visionFingerprint || null,
     };
   }
 
@@ -5147,6 +5177,11 @@ if ('serviceWorker' in navigator) {
   // null whenever screenshot storage isn't configured yet or the upload
   // failed -- fillJournalFromExtraction() only attaches it when present.
   let lastSetupScreenshotUrl = null;
+  // Sprint 20 Phase 4 -- the complete raw vision read from the same
+  // screenshot (every field the AI detected, not just what the
+  // extraction/UI shows). Read into pendingVisionFingerprint (and
+  // pendingTimeframe/pendingOrderType) by fillJournalFromExtraction.
+  let lastSetupFingerprint = null;
   // NOTE: pendingEntryScreenshotUrl/pendingExitScreenshotUrl are declared
   // at the top level of the OTHER <script> block (with renderJournal/
   // openJournalModal/saveJournalEntry) rather than here, deliberately --
@@ -5230,7 +5265,17 @@ if ('serviceWorker' in navigator) {
       : '';
 
     let statsHtml = '';
-    if (insight.hasEnoughHistory && insight.sampleSize > 0) {
+    if (insight.hasEnoughHistory && insight.sampleSize > 0 && insight.lowConfidence) {
+      // Sprint 20 Phase 4 -- 1-2 similar trades isn't a win rate, it's a
+      // coin flip. No confidence bar, no percentage -- just the raw
+      // counts and an explicit "don't trust this yet" note (the
+      // narrative already says the same thing in plain language below,
+      // this is the same message surfaced where the stat itself used to be).
+      statsHtml = '<div class="review-item" style="border-color:var(--yellow, #e0a800);color:var(--yellow, #e0a800);">' +
+        '&#9888; Low confidence &mdash; only ' + insight.sampleSize + ' similar trade' + (insight.sampleSize !== 1 ? 's' : '') + ' available' +
+        ' (' + insight.wins + 'W/' + insight.losses + 'L' + (insight.breakeven ? '/' + insight.breakeven + 'BE' : '') + '). Continue journaling before relying on this statistic.' +
+        '</div>';
+    } else if (insight.hasEnoughHistory && insight.sampleSize > 0) {
       statsHtml = confidenceBar('Historical win rate (similar setups)', Math.round(insight.winRate || 0)) +
         '<div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">' + insight.wins + ' won, ' + insight.losses + ' lost' + (insight.breakeven ? ', ' + insight.breakeven + ' breakeven' : '') + ' out of ' + insight.sampleSize + ' similar trades</div>';
     }
@@ -5251,8 +5296,27 @@ if ('serviceWorker' in navigator) {
     // the Sprint 20 Phase 3 journal trade detail view -- see
     // renderSimilarTradesCards().
     const topSimilarHtml = renderSimilarTradesCards(insight.topSimilar);
+    const characteristicGapsHtml = renderCharacteristicGapsHtml(insight.characteristicGaps);
 
-    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml;
+    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + topSimilarHtml + characteristicGapsHtml;
+  }
+
+  // Sprint 20 Phase 4 -- "what do my winners have that this doesn't /
+  // what do my losers have that this also has?" Purely descriptive,
+  // never a verdict -- same wording style as riskNotes. Shared by the
+  // pre-trade Chart Analysis insight (renderSetupInsight, above) and the
+  // journal trade detail view (loadTradeDetailInsight, below), same as
+  // renderSimilarTradesCards(). Returns '' whenever the engine didn't
+  // have enough similar wins/losses to say anything honest.
+  function renderCharacteristicGapsHtml(gaps) {
+    const gapLines = gaps ? (gaps.winnerGaps || []).concat(gaps.loserEchoes || []) : [];
+    if (!gapLines.length) return '';
+    return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">VS. YOUR WINNERS &amp; LOSERS</div>' +
+        gapLines.map(function (line) {
+          return '<div class="review-item" style="font-size:0.85rem;">' + escapeHtml(line) + '</div>';
+        }).join('') +
+      '</div>';
   }
 
   // Sprint 20 Phase 2/3 -- "MOST SIMILAR TRADES" cards, shared by the
@@ -5323,6 +5387,10 @@ if ('serviceWorker' in navigator) {
       const data = await apiFetchMultipart('/api/v1/chart/full-analysis/image', { method: 'POST', body: form });
       lastSetupExtraction = data.extraction;
       lastSetupScreenshotUrl = (data.meta && data.meta.screenshotUrl) || null;
+      // Sprint 20 Phase 4 -- the complete raw vision read, carried
+      // through fillJournalFromExtraction into the saved trade's
+      // timeframe/orderType/visionFingerprint fields.
+      lastSetupFingerprint = data.fingerprint || null;
       renderSetupInsight(targetElId, data);
       return data;
     } catch (e) {
@@ -5351,6 +5419,11 @@ if ('serviceWorker' in navigator) {
     // (and saved) straight onto this new journal entry -- no second
     // upload needed. null when screenshot storage isn't configured yet.
     pendingEntryScreenshotUrl = lastSetupScreenshotUrl || null;
+    // Sprint 20 Phase 4 -- carry timeframe/orderType/the full vision
+    // fingerprint through to saveJournalEntry() the same way.
+    pendingTimeframe = extraction.timeframe || null;
+    pendingOrderType = extraction.orderType || null;
+    pendingVisionFingerprint = lastSetupFingerprint || null;
     renderJournalScreenshots(null);
     const setVal = function (id, value) {
       const el = document.getElementById(id);
@@ -5524,11 +5597,12 @@ if ('serviceWorker' in navigator) {
       const data = await apiFetch('/api/v1/trades/' + encodeURIComponent(tradeId) + '/insight');
       const insight = data.insight || {};
       const cardsHtml = renderSimilarTradesCards(insight.topSimilar);
-      simEl.innerHTML = cardsHtml || (
+      const gapsHtml = renderCharacteristicGapsHtml(insight.characteristicGaps);
+      simEl.innerHTML = (cardsHtml || (
         '<div class="review-item" style="color:var(--text-muted);font-size:0.85rem;">' +
         escapeHtml((insight.narrative && insight.narrative[insight.narrative.length - 1]) || 'No similar trades found yet.') +
         '</div>'
-      );
+      )) + gapsHtml;
       lessonEl.innerHTML = renderLessonSection(data.lesson);
     } catch (e) {
       // Most likely this trade was logged locally but never synced to
