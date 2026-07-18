@@ -4751,6 +4751,19 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">AI Trade Mentor Report</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Your biggest improvement, your biggest repeated mistake, the habit costing you the most money, your best/worst setup and pair by real dollars, and the single characteristic your winners (and losers) almost always share &mdash; all discovered purely from your own logged trades.</p>
+    <div style="margin-bottom:0.6rem;">
+      <select id="ai-mentor-period" class="form-input" style="width:auto;display:inline-block;margin-right:0.5rem;">
+        <option value="week">This week</option>
+        <option value="month">This month</option>
+      </select>
+      <button class="btn" onclick="aiLoadMentorReport()">Get my mentor report</button>
+    </div>
+    <div id="ai-mentor-report-output"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
     <div class="form-group">
@@ -5261,6 +5274,47 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // Sprint 20 Phase 7 -- "AI Trade Mentor" periodic coaching report
+  // (GET /coach/mentor-report?period=week|month -> mentor_report_engine.py).
+  // Every field is None/omitted when there wasn't enough data for that
+  // specific comparison -- rendered as a dash rather than hidden, so the
+  // trader can see exactly what's still missing.
+  async function loadMentorReport() {
+    const el = document.getElementById('ai-mentor-report-output');
+    const periodSelect = document.getElementById('ai-mentor-period');
+    if (!el) return;
+    const period = periodSelect ? periodSelect.value : 'week';
+    el.textContent = 'Loading...';
+    try {
+      const data = await apiFetch('/api/v1/coach/mentor-report?period=' + encodeURIComponent(period));
+      if (!data.hasEnoughData) {
+        el.innerHTML = '<div class="review-item" style="color:var(--text-muted);">Not enough trades logged this ' + escapeHtml(period) + ' yet (need at least 3) -- keep journaling and this report will fill in.</div>';
+        return;
+      }
+      const rows = [
+        ['Biggest improvement', data.biggestImprovement],
+        ['Biggest repeated mistake', data.biggestRepeatedMistake],
+        ['Costliest habit', data.costliestHabit],
+        ['Setup making you the most money', data.bestSetup],
+        ['Setup losing you the most money', data.worstSetup],
+        ['Pair you trade best', data.bestPair],
+        ['Pair you should stop trading', data.pairToStopTrading],
+        ['What your winning trades almost always have', data.winnerCharacteristic],
+        ['What your losing trades almost always have', data.loserCharacteristic],
+      ];
+      el.innerHTML = rows.map(function (r) {
+        const label = r[0], value = r[1];
+        return '<div class="review-item" style="font-size:0.85rem;">' +
+          '<strong>' + escapeHtml(label) + ':</strong> ' +
+          (value ? escapeHtml(value) : '<span style="color:var(--text-muted);">Not enough data yet.</span>') +
+        '</div>';
+      }).join('') +
+      '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Based on ' + data.periodSampleSize + ' trades logged this ' + escapeHtml(period) + '.</div>';
+    } catch (e) {
+      el.textContent = 'Error: ' + e.message;
+    }
+  }
+
   // Sprint 20 -- screenshot-first workflow. Both Pre-Trade Check and
   // Chart Analysis Engine call the same backend endpoint
   // (/chart/full-analysis/image) and render the same shape:
@@ -5372,7 +5426,15 @@ if ('serviceWorker' in navigator) {
       statsHtml = '<div class="review-item" style="border-color:var(--yellow, #e0a800);color:var(--yellow, #e0a800);">' +
         '&#9888; Low confidence &mdash; only ' + insight.sampleSize + ' similar trade' + (insight.sampleSize !== 1 ? 's' : '') + ' available' +
         ' (' + insight.wins + 'W/' + insight.losses + 'L' + (insight.breakeven ? '/' + insight.breakeven + 'BE' : '') + '). Continue journaling before relying on this statistic.' +
-        '</div>';
+        '</div>' +
+        // Sprint 20 Phase 7 -- "AI Confidence Explanation": itemized
+        // reasons, not just the bare sentence above.
+        ((insight.confidenceExplanation && insight.confidenceExplanation.length)
+          ? '<div class="review-item" style="font-size:0.8rem;color:var(--text-secondary);">' +
+              '<div style="font-weight:600;color:var(--text-primary);margin-bottom:0.15rem;">Confidence is low because:</div>' +
+              insight.confidenceExplanation.map(function (r) { return '<div>&#8226; ' + escapeHtml(r) + '</div>'; }).join('') +
+            '</div>'
+          : '');
     } else if (insight.hasEnoughHistory && insight.sampleSize > 0) {
       statsHtml = confidenceBar('Historical win rate (similar setups)', Math.round(insight.winRate || 0)) +
         '<div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.5rem;">' + insight.wins + ' won, ' + insight.losses + ' lost' + (insight.breakeven ? ', ' + insight.breakeven + ' breakeven' : '') + ' out of ' + insight.sampleSize + ' similar trades</div>';
@@ -5445,14 +5507,45 @@ if ('serviceWorker' in navigator) {
             : '') +
         '</div>'
       : '';
-    if (!gapLines.length && !summaryHtml && !checklistHtml) return '';
+    // Sprint 20 Phase 7 -- "AI Trade Mentor": ranked "why might this
+    // setup lose" list (already severity-sorted by the backend).
+    const weaknesses = (gaps && gaps.weaknesses) || [];
+    const weaknessesHtml = weaknesses.length
+      ? '<div class="review-item" style="font-size:0.85rem;">' +
+          '<div style="font-weight:600;margin-bottom:0.2rem;">Why this setup could lose:</div>' +
+          weaknesses.map(function (w, i) {
+            return '<div>' + (i + 1) + '. ' + escapeHtml(w.label) + '</div>';
+          }).join('') +
+        '</div>'
+      : '';
+    // "What makes this setup better than my losers?"
+    const betterThanLosers = (gaps && gaps.betterThanLosers) || [];
+    const betterThanLosersHtml = betterThanLosers.length
+      ? '<div class="review-item" style="font-size:0.85rem;">' +
+          '<div style="font-weight:600;margin-bottom:0.2rem;color:var(--green);">This setup is better than your losers because:</div>' +
+          betterThanLosers.map(function (r) { return '<div>&#8226; ' + escapeHtml(r) + '</div>'; }).join('') +
+        '</div>'
+      : '';
+    // "Improvement Suggestions" -- directly reflects winnerChecklist's
+    // own missing rows, worded as coaching, not a verdict.
+    const suggestions = (gaps && gaps.improvementSuggestions) || [];
+    const suggestionsHtml = suggestions.length
+      ? '<div class="review-item" style="font-size:0.85rem;">' +
+          '<div style="font-weight:600;margin-bottom:0.2rem;">To move this setup closer to your best-performing trades:</div>' +
+          suggestions.map(function (s) { return '<div>&#8226; ' + escapeHtml(s) + '</div>'; }).join('') +
+        '</div>'
+      : '';
+    if (!gapLines.length && !summaryHtml && !checklistHtml && !weaknessesHtml && !betterThanLosersHtml && !suggestionsHtml) return '';
     return '<div style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
         '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">VS. YOUR WINNERS &amp; LOSERS</div>' +
         summaryHtml +
         checklistHtml +
+        weaknessesHtml +
+        betterThanLosersHtml +
         gapLines.map(function (line) {
           return '<div class="review-item" style="font-size:0.85rem;">' + escapeHtml(line) + '</div>';
         }).join('') +
+        suggestionsHtml +
       '</div>';
   }
 
@@ -6342,6 +6435,7 @@ if ('serviceWorker' in navigator) {
   window.aiLoadPlaybook = loadPlaybook;
   window.aiLoadEdgePatterns = loadEdgePatterns;
   window.aiLoadDiscoveredPatterns = loadDiscoveredPatterns;
+  window.aiLoadMentorReport = loadMentorReport;
   window.aiRunPretrade = runPretradeCheck;
   window.aiLogPretradeSetup = logPretradeSetup;
   window.aiRunChartAnalysis = runChartAnalysis;
