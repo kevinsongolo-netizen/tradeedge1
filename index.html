@@ -5634,6 +5634,10 @@ if ('serviceWorker' in navigator) {
       ? '<div class="review-item" style="border-color:var(--red);color:var(--red);">&#9888; ' + escapeHtml(extraction.numberConsistencyWarning) + '</div>'
       : '';
 
+    // Sprint 20 Phase 12 ("Evidence-Based Reasoning") -- see
+    // renderEvidenceHtml below.
+    const evidenceHtml = renderEvidenceHtml(extraction);
+
     let statsHtml = '';
     if (insight.hasEnoughHistory && insight.sampleSize > 0 && insight.lowConfidence) {
       // Sprint 20 Phase 4 -- 1-2 similar trades isn't a win rate, it's a
@@ -5686,7 +5690,76 @@ if ('serviceWorker' in navigator) {
       ? renderCurrentSetupScreenshotHtml(meta.screenshotUrl)
       : '';
 
-    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml + edgeProfileHtml;
+    el.innerHTML = placeholderBanner + extractionHtml + warningHtml + evidenceHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml + edgeProfileHtml;
+  }
+
+  // Sprint 20 Phase 12 ("Evidence-Based Reasoning") -- the trader's own
+  // framing: "I want to understand how the AI reached each conclusion,
+  // not just what it concluded." One row per interpretive read the
+  // vision model made (Order Block freshness, rejection strength, the
+  // fair value gap's status/size, point-of-interest type, trend,
+  // structure, latest structural event, liquidity, premium/discount
+  // zone, and the overall price context), each paired with the
+  // concrete visual evidence the backend says backs that specific
+  // conclusion (see app/chart/vision_provider.py's EVIDENCE_FIELDS/
+  // _ensure_evidence_shape) -- or an honest "no specific evidence
+  // noted" line when the model didn't point to anything concrete,
+  // rather than silently hiding that gap. Deliberately not a new
+  // conclusion/feature -- every value rendered here already existed on
+  // the extraction/fingerprint; this only makes the reasoning behind
+  // each one visible and verifiable. Shared by Pre-Trade Check and the
+  // Chart Analysis Engine (same renderSetupInsight() call, same
+  // fingerprint -- see Phase 11's single-pipeline note above).
+  function renderEvidenceHtml(extraction) {
+    const evidence = extraction.evidence || {};
+    // [field key, display label, headline formatter] -- the formatter
+    // turns the raw extraction value (plus, for the three Phase 9
+    // honesty-confidence fields, its matching % confidence) into the
+    // row's headline text, or returns null when there's nothing to show.
+    const rows = [
+      ['orderBlockFreshness', 'Order Block', function () {
+        if (!extraction.orderBlockFreshness) return null;
+        return extraction.orderBlockFreshness + (extraction.orderBlockFreshnessConfidence != null ? ' (' + extraction.orderBlockFreshnessConfidence + '% confidence)' : '');
+      }],
+      ['rejectionStrength', 'Rejection Strength', function () {
+        if (!extraction.rejectionStrength || extraction.rejectionStrength === 'None') return null;
+        return extraction.rejectionStrength + (extraction.rejectionStrengthConfidence != null ? ' (' + extraction.rejectionStrengthConfidence + '% confidence)' : '');
+      }],
+      ['fvgStatus', 'Fair Value Gap', function () {
+        if (!extraction.fvgStatus) return null;
+        return extraction.fvgStatus +
+          (extraction.fvgSize ? ' &middot; ' + extraction.fvgSize + ' size' : '') +
+          (extraction.fvgMitigationConfidence != null ? ' (' + extraction.fvgMitigationConfidence + '% confidence)' : '');
+      }],
+      ['poiType', 'Point of Interest', function () { return extraction.poiType || null; }],
+      ['trend', 'Trend', function () { return extraction.trend || null; }],
+      ['structure', 'Market Structure', function () { return extraction.structure || null; }],
+      ['latestEvent', 'Latest Structural Event', function () { return extraction.latestEvent || null; }],
+      ['liquidity', 'Liquidity', function () { return extraction.liquidity || null; }],
+      ['premiumDiscount', 'Zone', function () { return extraction.premiumDiscount || null; }],
+      ['currentPriceContext', 'Price Context', function () { return extraction.currentPriceContext || null; }],
+    ];
+
+    const rowsHtml = rows.map(function (row) {
+      const field = row[0], label = row[1], headline = row[2]();
+      const bullets = evidence[field] || [];
+      if (!headline && !bullets.length) return '';
+      const bulletsHtml = bullets.length
+        ? '<ul style="margin:0.25rem 0 0 1.1rem;padding:0;font-size:0.78rem;color:var(--text-secondary);">' +
+            bullets.map(function (b) { return '<li>' + escapeHtml(b) + '</li>'; }).join('') +
+          '</ul>'
+        : '<div style="margin-top:0.25rem;font-size:0.78rem;color:var(--text-muted);font-style:italic;">No specific evidence noted for this read.</div>';
+      return '<div style="margin-bottom:0.5rem;">' +
+          '<div style="font-size:0.85rem;"><strong>' + escapeHtml(label) + ':</strong> ' + escapeHtml(headline || '—') + '</div>' +
+          bulletsHtml +
+        '</div>';
+    }).join('');
+
+    if (!rowsHtml) return '';
+    return '<details class="review-item" open style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
+        '<summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">WHY THE AI REACHED THESE CONCLUSIONS</summary>' +
+        '<div style="margin-top:0.5rem;">' + rowsHtml + '</div>' +
+      '</details>';
   }
 
   // Sprint 20 Phase 8 -- "AI Learning Engine": renders the whole-history
