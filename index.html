@@ -5615,6 +5615,15 @@ if ('serviceWorker' in navigator) {
       : '';
 
     const directionColor = extraction.orderDirection === 'BUY' ? 'var(--green)' : (extraction.orderDirection === 'SELL' ? 'var(--red)' : '');
+    // Sprint 20 Phase 13 ("Facts vs. Interpretation vs. Confidence") --
+    // the trader's own framing: "Right now, the AI mixes together
+    // things it directly sees on the chart with things it infers."
+    // This at-a-glance header now shows ONLY facts (pair, timeframe,
+    // the trader's own order, entry/SL/TP/R:R) -- trend, premium/
+    // discount, POI type, and the latest structural event used to be
+    // mixed in here too, but those are interpretations, not facts, so
+    // they now live exclusively in renderReasoningHtml's numbered "2.
+    // AI INTERPRETATION" section below, right next to their evidence.
     const extractionHtml =
       '<div class="review-item">' +
         '<strong>' + escapeHtml(fmt(extraction.pair)) + '</strong>' +
@@ -5623,8 +5632,7 @@ if ('serviceWorker' in navigator) {
         (extraction.orderType ? ' (' + escapeHtml(extraction.orderType) + ')' : '') +
       '</div>' +
       '<div class="review-item">Entry ' + fmt(extraction.entry) + ' &middot; SL ' + fmt(extraction.stopLoss) + ' &middot; TP ' + fmt(extraction.takeProfit) + (extraction.riskReward != null ? ' &middot; R:R ' + extraction.riskReward : '') + '</div>' +
-      (extraction.poiType ? '<div class="review-item">' + escapeHtml(extraction.poiType) + (extraction.latestEvent ? ' &middot; ' + escapeHtml(extraction.latestEvent) : '') + '</div>' : '') +
-      '<div class="review-item" style="font-size:0.8rem;color:var(--text-secondary);">' + escapeHtml(fmt(extraction.trend)) + ' trend &middot; ' + escapeHtml(fmt(extraction.premiumDiscount)) + ' &middot; read confidence ' + fmt(extraction.readConfidence) + '%</div>';
+      '<div class="review-item" style="font-size:0.8rem;color:var(--text-secondary);">Overall read confidence ' + fmt(extraction.readConfidence) + '%</div>';
 
     // Sprint 20 fix -- the backend deterministically checks whether SL/TP
     // land on the correct side of entry for the stated direction (a vision
@@ -5634,9 +5642,9 @@ if ('serviceWorker' in navigator) {
       ? '<div class="review-item" style="border-color:var(--red);color:var(--red);">&#9888; ' + escapeHtml(extraction.numberConsistencyWarning) + '</div>'
       : '';
 
-    // Sprint 20 Phase 12 ("Evidence-Based Reasoning") -- see
-    // renderEvidenceHtml below.
-    const evidenceHtml = renderEvidenceHtml(extraction);
+    // Sprint 20 Phase 12/13 ("Evidence-Based Reasoning" / "Facts vs.
+    // Interpretation vs. Confidence") -- see renderReasoningHtml below.
+    const evidenceHtml = renderReasoningHtml(extraction);
 
     let statsHtml = '';
     if (insight.hasEnoughHistory && insight.sampleSize > 0 && insight.lowConfidence) {
@@ -5693,43 +5701,70 @@ if ('serviceWorker' in navigator) {
     el.innerHTML = placeholderBanner + extractionHtml + warningHtml + evidenceHtml + statsHtml + narrativeHtml + riskNotesHtml + currentSetupScreenshotHtml + topSimilarHtml + characteristicGapsHtml + edgeProfileHtml;
   }
 
-  // Sprint 20 Phase 12 ("Evidence-Based Reasoning") -- the trader's own
-  // framing: "I want to understand how the AI reached each conclusion,
-  // not just what it concluded." One row per interpretive read the
-  // vision model made (Order Block freshness, rejection strength, the
-  // fair value gap's status/size, point-of-interest type, trend,
-  // structure, latest structural event, liquidity, premium/discount
-  // zone, and the overall price context), each paired with the
-  // concrete visual evidence the backend says backs that specific
-  // conclusion (see app/chart/vision_provider.py's EVIDENCE_FIELDS/
-  // _ensure_evidence_shape) -- or an honest "no specific evidence
-  // noted" line when the model didn't point to anything concrete,
-  // rather than silently hiding that gap. Deliberately not a new
-  // conclusion/feature -- every value rendered here already existed on
-  // the extraction/fingerprint; this only makes the reasoning behind
-  // each one visible and verifiable. Shared by Pre-Trade Check and the
-  // Chart Analysis Engine (same renderSetupInsight() call, same
-  // fingerprint -- see Phase 11's single-pipeline note above).
-  function renderEvidenceHtml(extraction) {
+  // Sprint 20 Phase 12/13 ("Evidence-Based Reasoning" / "Facts vs.
+  // Interpretation vs. Confidence") -- the trader's own framing: "Right
+  // now, the AI mixes together things it directly sees on the chart
+  // with things it infers... I want to verify its reasoning instead of
+  // simply trusting it." Renders three explicit, separately-labeled
+  // tiers rather than one undifferentiated block:
+  //   1. DIRECTLY DETECTED (FACTS) -- the trader's own order plus the
+  //      literal annotation labels the chart already has on it
+  //      (app/chart/vision_provider.py's ``detectedLabels``), zero
+  //      interpretation attached.
+  //   2. AI INTERPRETATION -- what those detections mean (trend,
+  //      structure, Order Block/FVG status, etc.), each with the
+  //      concrete visual evidence backing it (Phase 12's ``evidence``).
+  //   3. AI CONFIDENCE -- for every interpretation, a point-weighted
+  //      breakdown of why its confidence is what it is (Phase 13's
+  //      ``confidenceBreakdown``): named positive factors that raise
+  //      it, named negative factors that lower it, and the final
+  //      number -- mirrors the same idea renderCharacteristicGapsHtml's
+  //      point-weighted similarity rows already use, applied to
+  //      confidence instead of similarity.
+  // Deliberately not a new conclusion/feature -- every value rendered
+  // here already existed on the extraction/fingerprint; this only
+  // separates and labels what was already there so each tier is
+  // independently verifiable. Shared by Pre-Trade Check and the Chart
+  // Analysis Engine (same renderSetupInsight() call, same fingerprint
+  // -- see Phase 11's single-pipeline note above).
+  function renderReasoningHtml(extraction) {
     const evidence = extraction.evidence || {};
-    // [field key, display label, headline formatter] -- the formatter
-    // turns the raw extraction value (plus, for the three Phase 9
-    // honesty-confidence fields, its matching % confidence) into the
-    // row's headline text, or returns null when there's nothing to show.
+    const confidence = extraction.confidenceBreakdown || {};
+    const detectedLabels = extraction.detectedLabels || [];
+
+    // ---- 1. Directly Detected (Facts) --------------------------------
+    const factLines = [];
+    const orderLine = [extraction.orderDirection && extraction.orderDirection !== 'NONE' ? extraction.orderDirection : '', extraction.orderType || '']
+      .filter(Boolean).join(' ');
+    if (orderLine) factLines.push(orderLine);
+    if (extraction.pair) factLines.push(extraction.pair);
+    if (extraction.timeframe) factLines.push(extraction.timeframe);
+    if (extraction.entry != null) factLines.push('Entry: ' + extraction.entry);
+    if (extraction.stopLoss != null) factLines.push('SL: ' + extraction.stopLoss);
+    if (extraction.takeProfit != null) factLines.push('TP: ' + extraction.takeProfit);
+    if (extraction.lots != null) factLines.push('Lots: ' + extraction.lots);
+    detectedLabels.forEach(function (label) { factLines.push(label); });
+
+    const factsHtml = factLines.length
+      ? '<div style="margin-bottom:0.7rem;">' +
+          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.3rem;">1. DIRECTLY DETECTED (FACTS)</div>' +
+          '<ul style="margin:0 0 0 1.1rem;padding:0;font-size:0.85rem;">' +
+            factLines.map(function (l) { return '<li>' + escapeHtml(String(l)) + '</li>'; }).join('') +
+          '</ul>' +
+        '</div>'
+      : '';
+
+    // [field key, display label, headline formatter] -- shared by both
+    // the interpretation and confidence sections below so their row
+    // order and labels always match up.
     const rows = [
-      ['orderBlockFreshness', 'Order Block', function () {
-        if (!extraction.orderBlockFreshness) return null;
-        return extraction.orderBlockFreshness + (extraction.orderBlockFreshnessConfidence != null ? ' (' + extraction.orderBlockFreshnessConfidence + '% confidence)' : '');
-      }],
+      ['orderBlockFreshness', 'Order Block', function () { return extraction.orderBlockFreshness || null; }],
       ['rejectionStrength', 'Rejection Strength', function () {
-        if (!extraction.rejectionStrength || extraction.rejectionStrength === 'None') return null;
-        return extraction.rejectionStrength + (extraction.rejectionStrengthConfidence != null ? ' (' + extraction.rejectionStrengthConfidence + '% confidence)' : '');
+        return (extraction.rejectionStrength && extraction.rejectionStrength !== 'None') ? extraction.rejectionStrength : null;
       }],
       ['fvgStatus', 'Fair Value Gap', function () {
         if (!extraction.fvgStatus) return null;
-        return extraction.fvgStatus +
-          (extraction.fvgSize ? ' &middot; ' + extraction.fvgSize + ' size' : '') +
-          (extraction.fvgMitigationConfidence != null ? ' (' + extraction.fvgMitigationConfidence + '% confidence)' : '');
+        return extraction.fvgStatus + (extraction.fvgSize ? ' &middot; ' + extraction.fvgSize + ' size' : '');
       }],
       ['poiType', 'Point of Interest', function () { return extraction.poiType || null; }],
       ['trend', 'Trend', function () { return extraction.trend || null; }],
@@ -5740,7 +5775,8 @@ if ('serviceWorker' in navigator) {
       ['currentPriceContext', 'Price Context', function () { return extraction.currentPriceContext || null; }],
     ];
 
-    const rowsHtml = rows.map(function (row) {
+    // ---- 2. AI Interpretation -----------------------------------------
+    const interpretationRowsHtml = rows.map(function (row) {
       const field = row[0], label = row[1], headline = row[2]();
       const bullets = evidence[field] || [];
       if (!headline && !bullets.length) return '';
@@ -5751,14 +5787,55 @@ if ('serviceWorker' in navigator) {
         : '<div style="margin-top:0.25rem;font-size:0.78rem;color:var(--text-muted);font-style:italic;">No specific evidence noted for this read.</div>';
       return '<div style="margin-bottom:0.5rem;">' +
           '<div style="font-size:0.85rem;"><strong>' + escapeHtml(label) + ':</strong> ' + escapeHtml(headline || '—') + '</div>' +
+          '<div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.15rem;">Evidence:</div>' +
           bulletsHtml +
         '</div>';
     }).join('');
+    const interpretationHtml = interpretationRowsHtml
+      ? '<div style="margin-bottom:0.7rem;">' +
+          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.3rem;">2. AI INTERPRETATION</div>' +
+          interpretationRowsHtml +
+        '</div>'
+      : '';
 
-    if (!rowsHtml) return '';
+    // ---- 3. AI Confidence ----------------------------------------------
+    const confidenceRowsHtml = rows.map(function (row) {
+      const field = row[0], label = row[1], headline = row[2]();
+      const entry = confidence[field];
+      if (!headline || !entry) return '';
+      const positive = entry.positiveFactors || [];
+      const negative = entry.negativeFactors || [];
+      if (!positive.length && !negative.length && entry.finalConfidence == null) return '';
+      const factorLine = function (f) {
+        const sign = f.points > 0 ? '+' : '';
+        return '<li>' + escapeHtml(f.reason) + ' (' + sign + f.points + '%)</li>';
+      };
+      const positiveHtml = positive.length
+        ? '<div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.2rem;">Positive evidence:</div>' +
+            '<ul style="margin:0.15rem 0 0 1.1rem;padding:0;font-size:0.78rem;color:var(--green);">' + positive.map(factorLine).join('') + '</ul>'
+        : '';
+      const negativeHtml = negative.length
+        ? '<div style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.3rem;">Reduced confidence:</div>' +
+            '<ul style="margin:0.15rem 0 0 1.1rem;padding:0;font-size:0.78rem;color:var(--red);">' + negative.map(factorLine).join('') + '</ul>'
+        : '';
+      return '<div style="margin-bottom:0.5rem;">' +
+          '<div style="font-size:0.85rem;"><strong>' + escapeHtml(label) + ' Confidence:</strong> ' + entry.finalConfidence + '%</div>' +
+          positiveHtml + negativeHtml +
+          '<div style="font-size:0.78rem;font-weight:600;margin-top:0.25rem;">Final Confidence: ' + entry.finalConfidence + '%</div>' +
+        '</div>';
+    }).join('');
+    const confidenceHtml = confidenceRowsHtml
+      ? '<div>' +
+          '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.3rem;">3. AI CONFIDENCE</div>' +
+          confidenceRowsHtml +
+        '</div>'
+      : '';
+
+    const sections = factsHtml + interpretationHtml + confidenceHtml;
+    if (!sections) return '';
     return '<details class="review-item" open style="border-top:1px dashed var(--border);padding-top:0.6rem;margin-top:0.5rem;">' +
         '<summary style="cursor:pointer;font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;">WHY THE AI REACHED THESE CONCLUSIONS</summary>' +
-        '<div style="margin-top:0.5rem;">' + rowsHtml + '</div>' +
+        '<div style="margin-top:0.5rem;">' + sections + '</div>' +
       '</details>';
   }
 
