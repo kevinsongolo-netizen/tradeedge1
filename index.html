@@ -544,6 +544,27 @@ body::before {
 .filter-chip:hover { border-color: var(--text-muted); color: var(--text-primary); }
 .filter-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
+/* Sprint 21 -- AI Insights sub-navigation (see ai-subtab-chip below).
+   Deliberately its own class, not a reuse of .filter-chip -- that
+   class already has a page-load event-delegation handler
+   (document.querySelectorAll('.filter-chip').forEach(...)) wired to
+   the Journal's win/loss/asset filters; sharing the class name would
+   have silently attached that unrelated behavior to these pills too.
+   Same visual look, isolated click handling (switchAiSubtab below). */
+.ai-subtab-chip {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.ai-subtab-chip:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.ai-subtab-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
 .journal-table-wrap {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1530,6 +1551,16 @@ body::before {
       <button class="btn-icon" onclick="closeJournalModal()">✕</button>
     </div>
     <div class="modal-body">
+      <!-- Sprint 21 -- "Pre-Trade Checklist Gate": the trader asked for
+           discipline-enforcement, not just tracking -- their own active
+           Trading Rules (Rules tab) now have to be explicitly checked
+           off, right here, before Save Trade will do anything, for a
+           NEW trade (never gates editing an already-logged trade --
+           that's recordkeeping, not a live entry decision). Populated
+           by renderJournalChecklistGate(), which also lives in the
+           standalone Checklist tab -- same state.checklistState, same
+           rules, so ticking a box here and there never disagree. -->
+      <div id="journal-checklist-gate" style="display:none;"></div>
       <div id="journal-detail-panel" style="display:none;border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;background:var(--bg-input);">
         <div id="journal-screenshots-row" style="display:flex;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;"></div>
         <div class="form-group" id="journal-exit-screenshot-group" style="display:none;margin-bottom:0.5rem;">
@@ -1710,7 +1741,7 @@ body::before {
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeJournalModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveJournalEntry()">Save Trade</button>
+      <button class="btn btn-primary" id="journal-save-btn" onclick="saveJournalEntry()">Save Trade</button>
     </div>
   </div>
 </div>
@@ -2639,6 +2670,20 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
+// Sprint 21 -- AI Insights sub-navigation (Live Monitoring / Pre-Trade
+// Analysis / Coach & Patterns / MT5 Sync). Same show/hide pattern as the
+// main .nav-tab/.tab-content switcher above, but scoped to its own
+// .ai-subtab-chip/.ai-subtab-content classes so it can't collide with
+// unrelated click handlers bound to .filter-chip or .nav-tab.
+function switchAiSubtab(name) {
+  document.querySelectorAll('.ai-subtab-chip').forEach(function (chip) {
+    chip.classList.toggle('active', chip.dataset.aiSubtab === name);
+  });
+  document.querySelectorAll('.ai-subtab-content').forEach(function (content) {
+    content.style.display = (content.dataset.aiSubtabContent === name) ? '' : 'none';
+  });
+}
+
 
 
 // ============================
@@ -2801,6 +2846,10 @@ function toggleChecklistItem(ruleId) {
   state.checklistState[today][ruleId] = !state.checklistState[today][ruleId];
   saveChecklistState();
   renderChecklist();
+  // Sprint 21 -- keep the Log Trade modal's gate (if open) in lock-step
+  // with the standalone Checklist tab -- one shared state, ticking a
+  // box in either place must be reflected in both immediately.
+  renderJournalChecklistGate();
 }
 
 function resetChecklist() {
@@ -2808,6 +2857,61 @@ function resetChecklist() {
   state.checklistState[today] = {};
   saveChecklistState();
   renderChecklist();
+  renderJournalChecklistGate();
+}
+
+// Sprint 21 ("Pre-Trade Checklist Gate") -- the trader asked for actual
+// discipline enforcement, not just a status display: "can't log the
+// trade until each item is explicitly checked off." Reuses the exact
+// same active-rules list and state.checklistState[today] the
+// standalone Checklist tab already tracks (so there's one shared
+// checklist, not two that can disagree) -- this just also renders it
+// inside the Log Trade modal and, critically, disables Save Trade
+// until every active rule is checked. Never blocks EDITING an
+// already-logged trade (see openJournalModal) -- only a fresh entry.
+function renderJournalChecklistGate() {
+  const gateEl = document.getElementById('journal-checklist-gate');
+  const saveBtn = document.getElementById('journal-save-btn');
+  if (!gateEl) return;
+  const active = getActiveRules();
+  const today = new Date().toISOString().split('T')[0];
+  if (!state.checklistState[today]) state.checklistState[today] = {};
+
+  if (active.length === 0) {
+    // No rules defined yet -- nothing honest to gate on. Say so rather
+    // than silently gating on an empty list (which would trivially
+    // "pass" and look like enforcement that isn't actually happening).
+    gateEl.innerHTML =
+      '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;background:var(--bg-input);font-size:0.82rem;color:var(--text-secondary);">' +
+        'No active trading rules defined yet -- add some in the <strong>Rules</strong> tab to turn this into a pre-trade checklist you have to clear before logging a trade.' +
+      '</div>';
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
+
+  const itemsHtml = active.map(function (rule) {
+    const checked = !!state.checklistState[today][rule.id];
+    return '<div class="checklist-item">' +
+        '<div class="checklist-checkbox ' + (checked ? 'checked' : '') + '" onclick="toggleChecklistItem(\'' + rule.id + '\')"></div>' +
+        '<span class="checklist-label ' + (checked ? 'checked' : '') + '" onclick="toggleChecklistItem(\'' + rule.id + '\')">' + escapeHtml(rule.text) + '</span>' +
+      '</div>';
+  }).join('');
+
+  const allChecked = active.every(function (r) { return state.checklistState[today][r.id]; });
+  const checkedCount = active.filter(function (r) { return state.checklistState[today][r.id]; }).length;
+
+  gateEl.innerHTML =
+    '<div style="border:1px solid ' + (allChecked ? 'var(--green)' : 'var(--red)') + ';border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;background:var(--bg-input);">' +
+      '<div style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.03em;margin-bottom:0.4rem;">PRE-TRADE CHECKLIST &mdash; REQUIRED BEFORE SAVING</div>' +
+      itemsHtml +
+      '<div class="checklist-status ' + (allChecked ? 'ready' : 'not-ready') + '" style="margin-top:0.5rem;">' +
+        (allChecked
+          ? '&#10003; All checks passed &mdash; you can save this trade'
+          : (checkedCount + ' / ' + active.length + ' checked &mdash; complete every item to enable Save Trade')) +
+      '</div>' +
+    '</div>';
+
+  if (saveBtn) saveBtn.disabled = !allChecked;
 }
 
 // ============================
@@ -3026,8 +3130,18 @@ function openJournalModal(editId) {
   const exitShotFile = document.getElementById('j-exit-screenshot-file');
   if (exitShotFile) exitShotFile.value = '';
 
+  // Sprint 21 -- the checklist gate only applies to a fresh, live
+  // entry decision, never to editing a trade that's already logged
+  // (backfilled history, adding an exit price/notes later, etc. isn't
+  // "am I disciplined enough to enter right now").
+  const gateEl = document.getElementById('journal-checklist-gate');
+  if (gateEl) gateEl.style.display = editId ? 'none' : '';
+  if (!editId) renderJournalChecklistGate();
+
   if (editId) {
     title.textContent = 'Edit Trade';
+    const saveBtn = document.getElementById('journal-save-btn');
+    if (saveBtn) saveBtn.disabled = false;
     const journal = getCurrentJournal();
     const entry = journal.find(e => e.id === editId);
     renderJournalScreenshots(entry || null);
@@ -3117,10 +3231,39 @@ function saveJournalEntry() {
 
   if (!date || !pair) { showToast('Please fill in at least the date and pair.', 'error'); return; }
 
+  // Sprint 21 ("Pre-Trade Checklist Gate") -- defense in depth behind
+  // the disabled Save button: only gates a NEW trade (never editing an
+  // already-logged one), and only when the trader actually has active
+  // rules defined -- an empty list has nothing honest to enforce.
+  let checklistCompleted = null;
+  let checklistSnapshot = [];
+  if (!state.editingId) {
+    const active = getActiveRules();
+    if (active.length > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      if (!state.checklistState[today]) state.checklistState[today] = {};
+      const allChecked = active.every(function (r) { return state.checklistState[today][r.id]; });
+      if (!allChecked) {
+        showToast('Complete your pre-trade checklist before logging this trade.', 'error');
+        return;
+      }
+      checklistCompleted = true;
+      checklistSnapshot = active.map(function (r) { return { id: r.id, text: r.text, checked: true }; });
+    }
+  }
+
   const entryData = {
     date, pair, direction, asset, entry, exit, lots, sl, tp, pnl, rr, poi, session, exitReason,
     rulesFollowed, worked, failed, notes, workedTags, failedTags
   };
+  // Sprint 21 -- honest record of what the checklist gate actually
+  // enforced at the moment this trade was logged: null when no active
+  // rules existed yet (nothing to gate on, not "skipped"), true plus a
+  // snapshot of exactly which rules were checked when there were.
+  if (!state.editingId) {
+    entryData.checklistCompleted = checklistCompleted;
+    entryData.checklistSnapshot = checklistSnapshot;
+  }
 
   const journal = getCurrentJournal();
   const existingEntry = state.editingId ? journal.find(e => e.id === state.editingId) : null;
@@ -3134,6 +3277,8 @@ function saveJournalEntry() {
   entryData.timeframe = pendingTimeframe || (existingEntry ? existingEntry.timeframe : null) || null;
   entryData.orderType = pendingOrderType || (existingEntry ? existingEntry.orderType : null) || null;
   entryData.visionFingerprint = pendingVisionFingerprint || (existingEntry ? existingEntry.visionFingerprint : null) || null;
+
+  const wasNewTrade = !state.editingId;
 
   if (state.editingId) {
     const idx = journal.findIndex(e => e.id === state.editingId);
@@ -3152,6 +3297,19 @@ function saveJournalEntry() {
   saveJournal();
   renderJournal();
   closeJournalModal();
+
+  // Sprint 21 -- a checklist confirmation is good for ONE trade, not
+  // the rest of the day -- reset it right after a successful new-trade
+  // save so the next trade requires its own fresh confirmation instead
+  // of coasting on a checkbox ticked hours (and several other trades)
+  // ago. Never resets on an edit -- editing doesn't represent a new
+  // live entry decision.
+  if (wasNewTrade && checklistSnapshot.length > 0) {
+    const today = new Date().toISOString().split('T')[0];
+    state.checklistState[today] = {};
+    saveChecklistState();
+    renderChecklist();
+  }
 }
 
 // Sprint 20 Phase 3 -- merges whatever screenshot(s) were just uploaded
@@ -4851,6 +5009,25 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
+  <!-- Sprint 21 -- this tab had grown into 13 separate cards stacked in
+       one long scroll (Live Scanner, MT5 sync, six different Coach/
+       Pattern engines, Pre-Trade Check, Chart Analysis, Session/News,
+       Margin Buffer, the ML model -- everything at once). Grouped into
+       four sub-tabs by what you're actually trying to do in the
+       moment: watch something live, check a setup before entering,
+       learn from your own history, or sync/manage your data. Pure
+       reorganization -- every card's content, ids, and onclick handlers
+       are unchanged, only which group they're shown under and the
+       small switchAiSubtab() show/hide logic are new. -->
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+    <button class="ai-subtab-chip active" data-ai-subtab="live" onclick="switchAiSubtab('live')">Live Monitoring</button>
+    <button class="ai-subtab-chip" data-ai-subtab="pretrade" onclick="switchAiSubtab('pretrade')">Pre-Trade Analysis</button>
+    <button class="ai-subtab-chip" data-ai-subtab="coach" onclick="switchAiSubtab('coach')">Coach &amp; Patterns</button>
+    <button class="ai-subtab-chip" data-ai-subtab="sync" onclick="switchAiSubtab('sync')">MT5 Sync</button>
+  </div>
+
+  <div class="ai-subtab-content" data-ai-subtab-content="live">
+
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:0.25rem;">Live Opportunity Scanner</h3>
     <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Watches your own open trades (logged from a screenshot, not yet closed) against live MT5 price and flags when price is closing in on or has crossed your SL/TP. No rules, no verdict &mdash; just where price sits relative to your own plan. Requires the Live MT5 Feed EA to be attached and pushing price for that symbol.</p>
@@ -4868,37 +5045,99 @@ if ('serviceWorker' in navigator) {
     <div id="ai-scan-results" style="margin-top:1rem;"></div>
   </div>
 
-  <div class="card" style="margin-bottom:1.5rem;">
-    <div class="form-group">
-      <label class="form-label">Backend URL</label>
-      <div style="display:flex;gap:0.5rem;">
-        <input type="text" class="form-input" id="ai-api-base-input" placeholder="https://your-app.onrender.com">
-        <button class="btn btn-primary" onclick="aiSaveApiBase()">Save</button>
-      </div>
-    </div>
-    <button class="btn" onclick="aiSyncTrades()">Sync my trades to AI backend</button>
-    <span id="ai-sync-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Session &amp; News <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Auto-refreshes every 60 seconds — current trading session and any high-impact news due soon, no button needed.</p>
+    <div id="ai-session-output" style="margin-bottom:1rem;"></div>
 
-    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
-      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">Auto-journal from MT5 (<code>TradeEdgeAutoJournal.mq5</code>): pulls in trades your MT5 EA has opened/closed automatically -- you still fill in rules/tags/notes yourself afterward.</div>
-      <button class="btn btn-primary" onclick="aiImportMt5Trades()">Check for new trades</button>
-      <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;margin-left:1rem;">
-        <input type="checkbox" id="ai-mt5-import-autocheck"> Auto-check every 60 seconds
-      </label>
-      <span id="ai-mt5-import-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+    <div style="border-top:1px solid var(--border);padding-top:1rem;">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Look ahead (minutes)</label><input type="number" step="any" class="form-input" id="ai-news-buffer" placeholder="60" value="60"></div>
+        <div class="form-group"><label class="form-label">Currencies (optional, comma-separated)</label><input type="text" class="form-input" id="ai-news-currencies" placeholder="USD, EUR"></div>
+        <div class="form-group"><label class="form-label">Minimum impact</label>
+          <select class="form-select" id="ai-news-min-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+        </div>
+      </div>
+      <div id="ai-news-error" style="margin-top:0.5rem;color:var(--red);font-size:0.85rem;"></div>
+      <div id="ai-news-output" style="margin-top:0.5rem;"></div>
     </div>
 
     <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
-      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">
-        <strong style="color:var(--red);">Clear all trades on the AI backend</strong> -- permanently deletes every trade in the AI backend's journal (e.g. starting fresh on a new MT5 account, so the AI Confidence Model and Coach stop mixing in old-account history). This does not touch your local Trade Journal tab -- only the copy the AI backend uses for coaching and ML training. This action is permanent and cannot be undone.
+      <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.6rem;">Add your own news event -- always checked alongside the automatic calendar (works even if that calendar isn't configured or is erroring, like a missing/expired API key).</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Event name</label><input type="text" class="form-input" id="ai-news-manual-name" placeholder="e.g. FOMC Rate Decision"></div>
+        <div class="form-group"><label class="form-label">Currency (optional)</label><input type="text" class="form-input" id="ai-news-manual-currency" placeholder="USD"></div>
+        <div class="form-group"><label class="form-label">Impact</label>
+          <select class="form-select" id="ai-news-manual-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
+        </div>
+        <div class="form-group"><label class="form-label">Date &amp; time</label><input type="datetime-local" class="form-input" id="ai-news-manual-time"></div>
       </div>
-      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-        <input type="text" class="form-input" id="ai-clear-trades-confirm" placeholder="Type: DELETE ALL MY TRADES" style="max-width:280px;" autocomplete="off">
-        <button class="btn btn-danger" onclick="aiClearAllTrades()">Clear all trades</button>
-      </div>
-      <span id="ai-clear-trades-status" style="display:block;margin-top:0.5rem;font-size:0.82rem;color:var(--text-secondary)"></span>
+      <button class="btn" onclick="aiAddManualNewsEvent()">Add event</button>
+      <div id="ai-news-manual-list" style="margin-top:0.75rem;"></div>
     </div>
   </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Margin Buffer <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">A whole-account safety net alongside your per-trade stop losses: how close your account is to XM's margin call (50% margin level) and stop-out (20%) thresholds -- most useful if you have several positions open at once. It only warns -- it never closes anything. Requires the updated MT5 EA (pushes balance/equity/margin each tick).</p>
+    <div id="ai-margin-output">Waiting for your MT5 EA to push account data...</div>
+  </div>
+
+  </div>
+
+  <div class="ai-subtab-content" data-ai-subtab-content="pretrade" style="display:none;">
+
+  <div class="card" style="margin-bottom:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
+    <div class="form-group">
+      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
+      <input type="file" class="form-input" id="ai-pt-file" accept="image/png,image/jpeg,image/webp">
+    </div>
+    <button class="btn btn-primary" onclick="aiRunPretrade()">Check this setup</button>
+    <button class="btn" onclick="aiLogPretradeSetup()">Log as open trade</button>
+    <div id="ai-pretrade-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+    <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">Chart Analysis Engine</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Upload any chart screenshot &mdash; the AI reads the pair, timeframe, your pending order (Entry/SL/TP/R:R), and the OB/FVG/BOS/CHoCH your indicator marked, then compares it to your own trade history. No pass/fail rules &mdash; just "have I seen this before, and how did it go?"</p>
+
+    <div class="form-group">
+      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
+      <input type="file" class="form-input" id="ai-ca-file" accept="image/png,image/jpeg,image/webp">
+    </div>
+
+    <button class="btn btn-primary" onclick="aiRunChartAnalysis()">Analyze chart</button>
+    <div id="ai-ca-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+
+    <div id="ai-ca-results" style="margin-top:1.25rem;display:none;">
+      <div class="card" style="margin-bottom:1rem;">
+        <h4 style="margin-bottom:0.75rem;">Setup &amp; Insight</h4>
+        <div id="ai-ca-output"></div>
+      </div>
+      <button class="btn btn-primary" onclick="aiSaveChartAnalysisToJournal()">Save this trade to journal</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem;">
+    <h3 style="margin-bottom:0.25rem;">AI Confidence Model (Machine Learning)</h3>
+    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Learns win/loss patterns from your own logged trade history and powers the win-probability shown in Pre-Trade Check. Needs a real sample of closed trades first &mdash; this card will always tell you honestly whether it's ready, never guess with too little data.</p>
+    <button class="btn" onclick="aiCheckMlReadiness()">Check my trade data</button>
+    <button class="btn btn-primary" onclick="aiTrainMlModel()">Train model</button>
+    <div id="ai-ml-readiness" style="margin-top:0.75rem;"></div>
+    <div id="ai-ml-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
+    <div id="ai-ml-train-output" style="margin-top:0.75rem;"></div>
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:0.75rem;">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">Current active model</div>
+      <div id="ai-ml-active" style="font-size:0.85rem;">Loading...</div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="ai-subtab-content" data-ai-subtab-content="coach" style="display:none;">
 
   <div class="card" style="margin-bottom:1.5rem;">
     <h3 style="margin-bottom:1rem;">Coach Deep Dive</h3>
@@ -4947,90 +5186,42 @@ if ('serviceWorker' in navigator) {
     <div id="ai-mentor-report-output"></div>
   </div>
 
+  </div>
+
+  <div class="ai-subtab-content" data-ai-subtab-content="sync" style="display:none;">
+
   <div class="card" style="margin-bottom:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Pre-Trade Check</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Screenshot-first: take one screenshot of your MT5 chart showing your pending order (Entry/SL/TP) and the OB/FVG/BOS/CHoCH your indicator already marked. The AI reads it and compares it to your own past trades &mdash; it never tells you to take or skip a trade, that stays your call.</p>
     <div class="form-group">
-      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
-      <input type="file" class="form-input" id="ai-pt-file" accept="image/png,image/jpeg,image/webp">
-    </div>
-    <button class="btn btn-primary" onclick="aiRunPretrade()">Check this setup</button>
-    <button class="btn" onclick="aiLogPretradeSetup()">Log as open trade</button>
-    <div id="ai-pretrade-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-    <div id="ai-pretrade-output" style="margin-top:1rem;"></div>
-  </div>
-
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Chart Analysis Engine</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Upload any chart screenshot &mdash; the AI reads the pair, timeframe, your pending order (Entry/SL/TP/R:R), and the OB/FVG/BOS/CHoCH your indicator marked, then compares it to your own trade history. No pass/fail rules &mdash; just "have I seen this before, and how did it go?"</p>
-
-    <div class="form-group">
-      <label class="form-label">Chart screenshot (PNG/JPEG/WEBP, max 8MB)</label>
-      <input type="file" class="form-input" id="ai-ca-file" accept="image/png,image/jpeg,image/webp">
-    </div>
-
-    <button class="btn btn-primary" onclick="aiRunChartAnalysis()">Analyze chart</button>
-    <div id="ai-ca-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-
-    <div id="ai-ca-results" style="margin-top:1.25rem;display:none;">
-      <div class="card" style="margin-bottom:1rem;">
-        <h4 style="margin-bottom:0.75rem;">Setup &amp; Insight</h4>
-        <div id="ai-ca-output"></div>
+      <label class="form-label">Backend URL</label>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" class="form-input" id="ai-api-base-input" placeholder="https://your-app.onrender.com">
+        <button class="btn btn-primary" onclick="aiSaveApiBase()">Save</button>
       </div>
-      <button class="btn btn-primary" onclick="aiSaveChartAnalysisToJournal()">Save this trade to journal</button>
     </div>
-  </div>
+    <button class="btn" onclick="aiSyncTrades()">Sync my trades to AI backend</button>
+    <span id="ai-sync-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
 
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Session &amp; News <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Auto-refreshes every 60 seconds — current trading session and any high-impact news due soon, no button needed.</p>
-    <div id="ai-session-output" style="margin-bottom:1rem;"></div>
-
-    <div style="border-top:1px solid var(--border);padding-top:1rem;">
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Look ahead (minutes)</label><input type="number" step="any" class="form-input" id="ai-news-buffer" placeholder="60" value="60"></div>
-        <div class="form-group"><label class="form-label">Currencies (optional, comma-separated)</label><input type="text" class="form-input" id="ai-news-currencies" placeholder="USD, EUR"></div>
-        <div class="form-group"><label class="form-label">Minimum impact</label>
-          <select class="form-select" id="ai-news-min-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
-        </div>
-      </div>
-      <div id="ai-news-error" style="margin-top:0.5rem;color:var(--red);font-size:0.85rem;"></div>
-      <div id="ai-news-output" style="margin-top:0.5rem;"></div>
+    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
+      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">Auto-journal from MT5 (<code>TradeEdgeAutoJournal.mq5</code>): pulls in trades your MT5 EA has opened/closed automatically -- you still fill in rules/tags/notes yourself afterward.</div>
+      <button class="btn btn-primary" onclick="aiImportMt5Trades()">Check for new trades</button>
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-secondary);cursor:pointer;margin-left:1rem;">
+        <input type="checkbox" id="ai-mt5-import-autocheck"> Auto-check every 60 seconds
+      </label>
+      <span id="ai-mt5-import-status" style="margin-left:0.75rem;font-size:0.82rem;color:var(--text-secondary)"></span>
     </div>
 
     <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem;">
-      <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.6rem;">Add your own news event -- always checked alongside the automatic calendar (works even if that calendar isn't configured or is erroring, like a missing/expired API key).</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Event name</label><input type="text" class="form-input" id="ai-news-manual-name" placeholder="e.g. FOMC Rate Decision"></div>
-        <div class="form-group"><label class="form-label">Currency (optional)</label><input type="text" class="form-input" id="ai-news-manual-currency" placeholder="USD"></div>
-        <div class="form-group"><label class="form-label">Impact</label>
-          <select class="form-select" id="ai-news-manual-impact"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select>
-        </div>
-        <div class="form-group"><label class="form-label">Date &amp; time</label><input type="datetime-local" class="form-input" id="ai-news-manual-time"></div>
+      <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">
+        <strong style="color:var(--red);">Clear all trades on the AI backend</strong> -- permanently deletes every trade in the AI backend's journal (e.g. starting fresh on a new MT5 account, so the AI Confidence Model and Coach stop mixing in old-account history). This does not touch your local Trade Journal tab -- only the copy the AI backend uses for coaching and ML training. This action is permanent and cannot be undone.
       </div>
-      <button class="btn" onclick="aiAddManualNewsEvent()">Add event</button>
-      <div id="ai-news-manual-list" style="margin-top:0.75rem;"></div>
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        <input type="text" class="form-input" id="ai-clear-trades-confirm" placeholder="Type: DELETE ALL MY TRADES" style="max-width:280px;" autocomplete="off">
+        <button class="btn btn-danger" onclick="aiClearAllTrades()">Clear all trades</button>
+      </div>
+      <span id="ai-clear-trades-status" style="display:block;margin-top:0.5rem;font-size:0.82rem;color:var(--text-secondary)"></span>
     </div>
   </div>
 
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">Margin Buffer <span style="color:var(--green);font-size:0.7rem;font-weight:normal;">&#9679; LIVE</span></h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">A whole-account safety net alongside your per-trade stop losses: how close your account is to XM's margin call (50% margin level) and stop-out (20%) thresholds -- most useful if you have several positions open at once. It only warns -- it never closes anything. Requires the updated MT5 EA (pushes balance/equity/margin each tick).</p>
-    <div id="ai-margin-output">Waiting for your MT5 EA to push account data...</div>
-  </div>
-
-  <div class="card" style="margin-top:1.5rem;">
-    <h3 style="margin-bottom:0.25rem;">AI Confidence Model (Machine Learning)</h3>
-    <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Learns win/loss patterns from your own logged trade history and powers the win-probability shown in Pre-Trade Check. Needs a real sample of closed trades first &mdash; this card will always tell you honestly whether it's ready, never guess with too little data.</p>
-    <button class="btn" onclick="aiCheckMlReadiness()">Check my trade data</button>
-    <button class="btn btn-primary" onclick="aiTrainMlModel()">Train model</button>
-    <div id="ai-ml-readiness" style="margin-top:0.75rem;"></div>
-    <div id="ai-ml-error" style="margin-top:0.75rem;color:var(--red);font-size:0.85rem;"></div>
-    <div id="ai-ml-train-output" style="margin-top:0.75rem;"></div>
-    <div style="border-top:1px solid var(--border);margin-top:1rem;padding-top:0.75rem;">
-      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">Current active model</div>
-      <div id="ai-ml-active" style="font-size:0.85rem;">Loading...</div>
-    </div>
   </div>
 
 </div>
