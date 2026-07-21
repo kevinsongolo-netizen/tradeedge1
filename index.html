@@ -5534,6 +5534,27 @@ if ('serviceWorker' in navigator) {
     }
   }
 
+  // User-requested improvement (Sprint 22 follow-up): "Consider
+  // dropping: PAIR" alone gave no way to judge whether that's actually
+  // right -- now shows the win rate, net P&L, profit factor, and which
+  // session it's lost the most in, exactly the evidence a trader needs
+  // to decide for themselves. All four numbers come straight off the
+  // backend's pairToStopTrading row (profitFactor/worstSession are new
+  // fields there; winRate/totalPnl already existed).
+  function renderPairToStopTradingHtml(row) {
+    if (!row) return '';
+    const pnlSign = row.totalPnl >= 0 ? '+' : '-';
+    const bullets = [
+      'Win rate: ' + Math.round(row.winRate) + '% (' + row.wins + '/' + row.count + ')',
+      'Net P&L: ' + pnlSign + '$' + Math.abs(row.totalPnl).toFixed(2),
+      'Profit Factor: ' + (row.profitFactor === null || row.profitFactor === undefined ? 'No wins yet' : row.profitFactor.toFixed(2)),
+    ];
+    if (row.worstSession) bullets.push('Most losses occurred during the ' + escapeHtml(row.worstSession) + ' session.');
+    return '<div class="review-item"><strong>Consider dropping ' + escapeHtml(row.key) + '.</strong>' +
+      '<ul style="margin:0.35rem 0 0 1.2rem;padding:0;">' + bullets.map(function (b) { return '<li>' + b + '</li>'; }).join('') + '</ul>' +
+      '</div>';
+  }
+
   async function loadCoachDeepDive() {
     const el = document.getElementById('ai-coach-output');
     el.textContent = 'Loading...';
@@ -5546,7 +5567,7 @@ if ('serviceWorker' in navigator) {
         (data.worstSetup ? '<div class="review-item"><strong>Worst setup:</strong> ' + escapeHtml(data.worstSetup.key) + ' — ' + Math.round(data.worstSetup.winRate) + '% win rate over ' + data.worstSetup.count + ' trades</div>' : '') +
         (data.worstDayToTrade ? '<div class="review-item"><strong>Worst day to trade:</strong> ' + escapeHtml(data.worstDayToTrade.key) + '</div>' : '') +
         (data.bestSession ? '<div class="review-item"><strong>Best session:</strong> ' + escapeHtml(data.bestSession.key) + '</div>' : '') +
-        (data.pairToStopTrading ? '<div class="review-item"><strong>Consider dropping:</strong> ' + escapeHtml(data.pairToStopTrading.key) + '</div>' : '') +
+        renderPairToStopTradingHtml(data.pairToStopTrading) +
         '<div class="review-item" style="color:var(--text-muted);font-size:0.78rem;">Based on ' + data.sampleSize + ' synced trades.</div>';
     } catch (e) {
       el.textContent = 'Error: ' + e.message;
