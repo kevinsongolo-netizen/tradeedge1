@@ -1891,32 +1891,6 @@ Note: Prices with spaces (4 267,30) and commas (19,06620) are auto-detected!"></
           🔍 Parse Trades
         </button>
       </div>
-        <div class="form-group">
-          <label class="form-label">Paste MT5 Trade History</label>
-          <textarea class="form-textarea" id="mt5-paste-input" rows="8" placeholder="Paste your MT5 trade history here...
-
-The parser auto-detects these formats:
-• Markdown tables (from Notion, Obsidian, etc.)
-• MT5 Terminal copy (tab-separated)
-• MT5 CSV export (comma-separated)
-• Open positions with SL/TP
-• Closed trades with exit/profit
-
-Example (markdown table):
-| Time Open           | Type | Volume | Open Price | S/L     | T/P     | Close Price | Profit   |
-|---------------------|------|--------|------------|---------|---------|-------------|----------|
-| 2026-07-01 22:05:37 | Sell | 0.1    | 4065.04    | 4077.03 | 4044.46 | 4059.04     | **+0.60**|
-
-Example (your MT5 format):
-Time	Position	Symbol	Type	Volume	Price	S / L	T / P
-2026.06.09 20:43:51	491048207	GOLDmicro	buy	0.1	4 267,30	4 228,91	4 340,49
-
-Note: Prices with spaces (4 267,30) and commas (19,06620) are auto-detected!"></textarea>
-        </div>
-        <button class="btn btn-primary" style="width:100%;margin-top:1rem;justify-content:center" onclick="parseMT5Text()">
-          🔍 Parse Trades
-        </button>
-      </div>
 
       <!-- IMPORT RESULTS PREVIEW -->
       <div class="import-result" id="import-result">
