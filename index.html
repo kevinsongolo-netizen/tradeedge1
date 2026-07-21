@@ -565,6 +565,24 @@ body::before {
 .ai-subtab-chip:hover { border-color: var(--text-muted); color: var(--text-primary); }
 .ai-subtab-chip.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
+/* Every date/datetime field in the app is a native <input type="date">
+   (or datetime-local) -- it always had a real calendar picker, but with
+   no color-scheme set the browser draws the little calendar icon in its
+   LIGHT-mode colors (near-black) on our dark input background, so it was
+   basically invisible and looked like a plain type-it-yourself text box.
+   color-scheme:dark fixes the icon (and native dropdown arrows etc.)
+   everywhere at once -- see the matching JS block near TAB NAVIGATION
+   that also makes clicking anywhere in the field open the picker, not
+   just that tiny icon. */
+input[type="date"], input[type="datetime-local"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.85;
+}
+
 .journal-table-wrap {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1563,6 +1581,17 @@ body::before {
       <div id="journal-checklist-gate" style="display:none;"></div>
       <div id="journal-detail-panel" style="display:none;border:1px solid var(--border);border-radius:var(--radius);padding:0.75rem;margin-bottom:1rem;background:var(--bg-input);">
         <div id="journal-screenshots-row" style="display:flex;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;"></div>
+        <!-- Attach entry/exit screenshots after the fact -- mainly for
+             trades that came in with no photo at all (Excel/MT5 import
+             and manually-typed entries never have one). Same upload
+             pattern and endpoint as the exit field below, just the other
+             kind -- both merge into this trade's screenshots[] via
+             buildScreenshotsForSave() on Save. -->
+        <div class="form-group" id="journal-entry-screenshot-group" style="display:none;margin-bottom:0.5rem;">
+          <label class="form-label">Attach Entry Screenshot (optional)</label>
+          <input type="file" class="form-input" id="j-entry-screenshot-file" accept="image/png,image/jpeg,image/webp" onchange="uploadEntryScreenshot(event)">
+          <div id="journal-entry-screenshot-status" style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.35rem;"></div>
+        </div>
         <div class="form-group" id="journal-exit-screenshot-group" style="display:none;margin-bottom:0.5rem;">
           <label class="form-label">Attach After-Exit Screenshot (optional)</label>
           <input type="file" class="form-input" id="j-exit-screenshot-file" accept="image/png,image/jpeg,image/webp" onchange="uploadExitScreenshot(event)">
@@ -2670,6 +2699,22 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
+// Every date/datetime field here is a native <input type="date"> /
+// datetime-local -- it always had a real calendar picker, it just looked
+// like a plain yyyy/mm/dd text box because the picker icon rendered
+// near-invisible on our dark background (fixed with color-scheme:dark in
+// CSS, next to .ai-subtab-chip). This makes clicking ANYWHERE in the
+// field open that calendar too, not just the small icon -- showPicker()
+// is well-supported in Chrome/Edge; falls back to normal typing/native
+// icon click on browsers that don't have it (Safari, older Firefox).
+document.querySelectorAll('input[type="date"], input[type="datetime-local"]').forEach(function (el) {
+  el.addEventListener('click', function () {
+    if (typeof el.showPicker === 'function') {
+      try { el.showPicker(); } catch (e) { /* ignore -- not focused/visible yet */ }
+    }
+  });
+});
+
 // Sprint 21 -- AI Insights sub-navigation (Live Monitoring / Pre-Trade
 // Analysis / Coach & Patterns / MT5 Sync). Same show/hide pattern as the
 // main .nav-tab/.tab-content switcher above, but scoped to its own
@@ -3122,9 +3167,15 @@ function openJournalModal(editId) {
   pendingOrderType = null;
   pendingVisionFingerprint = null;
   const detailPanel = document.getElementById('journal-detail-panel');
+  const entryShotGroup = document.getElementById('journal-entry-screenshot-group');
   const exitShotGroup = document.getElementById('journal-exit-screenshot-group');
   if (detailPanel) detailPanel.style.display = editId ? '' : 'none';
+  if (entryShotGroup) entryShotGroup.style.display = editId ? '' : 'none';
   if (exitShotGroup) exitShotGroup.style.display = editId ? '' : 'none';
+  const entryShotStatus = document.getElementById('journal-entry-screenshot-status');
+  if (entryShotStatus) { entryShotStatus.textContent = ''; }
+  const entryShotFile = document.getElementById('j-entry-screenshot-file');
+  if (entryShotFile) entryShotFile.value = '';
   const exitShotStatus = document.getElementById('journal-exit-screenshot-status');
   if (exitShotStatus) { exitShotStatus.textContent = ''; }
   const exitShotFile = document.getElementById('j-exit-screenshot-file');
@@ -6527,6 +6578,40 @@ if ('serviceWorker' in navigator) {
       simEl.innerHTML = '<div class="review-item" style="color:var(--text-muted);font-size:0.85rem;">' +
         'Could not load similar trades yet -- sync this trade to the AI backend first (Sync to AI Backend, in AI Insights), then reopen it.' +
         '</div>';
+    }
+  }
+
+  // Backfill an entry screenshot onto an already-logged trade that never
+  // got one -- mainly Excel/MT5-imported trades and anything typed in by
+  // hand, both of which have no photo at all. Mirrors uploadExitScreenshot
+  // below (same endpoint, same merge-on-save via buildScreenshotsForSave),
+  // just sets pendingEntryScreenshotUrl instead of pendingExitScreenshotUrl.
+  async function uploadEntryScreenshot(event) {
+    const file = event.target.files && event.target.files[0];
+    const statusEl = document.getElementById('journal-entry-screenshot-status');
+    if (!file || !statusEl) return;
+    statusEl.style.color = 'var(--text-secondary)';
+    statusEl.textContent = 'Uploading...';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const data = await apiFetchMultipart('/api/v1/chart/upload-screenshot', { method: 'POST', body: form });
+      if (data.url) {
+        pendingEntryScreenshotUrl = data.url;
+        statusEl.style.color = 'var(--green)';
+        statusEl.textContent = 'Screenshot attached -- will be saved with this trade.';
+        const journal = getCurrentJournal();
+        const existing = state.editingId ? journal.find(function (e) { return e.id === state.editingId; }) : null;
+        renderJournalScreenshots({ screenshots: buildScreenshotsForSave(existing ? existing.screenshots : []) });
+      } else {
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = data.error
+          ? ('Could not save screenshot: ' + data.error)
+          : "Screenshot storage isn't configured on the backend yet (Cloudinary) -- nothing was saved.";
+      }
+    } catch (e) {
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = 'Error: ' + e.message;
     }
   }
 
