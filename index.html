@@ -4214,8 +4214,12 @@ function handleExcelUpload(event) {
         statusEl.className = 'ocr-status visible error';
       } else {
         const dupCount = markDuplicates(parsedTrades);
-        statusText.textContent = dupCount > 0
-          ? `✓ Found ${parsedTrades.length} trade${parsedTrades.length !== 1 ? 's' : ''} (${dupCount} already in journal, unchecked)`
+        const mergeCount = markDuplicates.lastMergeCount || 0;
+        const notes = [];
+        if (dupCount > 0) notes.push(`${dupCount} already in journal, unchecked`);
+        if (mergeCount > 0) notes.push(`${mergeCount} will complete a trade you already logged as open`);
+        statusText.textContent = notes.length
+          ? `✓ Found ${parsedTrades.length} trade${parsedTrades.length !== 1 ? 's' : ''} (${notes.join('; ')})`
           : `✓ Found ${parsedTrades.length} trade${parsedTrades.length !== 1 ? 's' : ''}`;
         statusEl.className = 'ocr-status visible success';
         showImportPreview(parsedTrades);
@@ -4487,18 +4491,64 @@ function getExistingSignatures() {
   return new Set(getCurrentJournal().map(tradeSignature));
 }
 
+// Sprint 22 stability audit -- a trader logs a setup via Pre-Trade Check's
+// "Log as open trade" BEFORE the trade closes (exit/pnl not known yet,
+// saved as '' / 0), then later imports the same trade from their MT5
+// Excel export once it's actually closed (real exit/pnl now present).
+// tradeSignature() above includes exit/pnl, so those two records never
+// match -- the Excel import would silently create a SECOND, duplicate
+// entry instead of recognizing "this is the same trade, now closed."
+// This stable signature -- the fields that are already known and don't
+// change between opening and closing a trade -- is used separately to
+// find that still-open record so the importer can complete it with the
+// real closed numbers instead of duplicating it. Exit/pnl/rr/sl/tp are
+// deliberately excluded here (they're exactly what's still unknown on
+// an open trade).
+function openTradeStableSignature(t) {
+  const round = (n) => Math.round((parseFloat(n) || 0) * 10000) / 10000;
+  return [
+    t.date,
+    (t.pair || '').toUpperCase().trim(),
+    (t.direction || '').toLowerCase(),
+    round(t.entry),
+    round(t.lots),
+  ].join('|');
+}
+
+// A journal entry counts as "still open" the same way saveJournalEntry()
+// leaves a freshly-logged trade: no exit price recorded yet. A real
+// closed breakeven trade still has an actual exit price (just $0 pnl),
+// so exit emptiness -- not pnl -- is the honest signal here.
+function isOpenJournalEntry(e) {
+  return !e.exit || String(e.exit).trim() === '';
+}
+
+function findOpenTradeMatch(t, journal) {
+  const sig = openTradeStableSignature(t);
+  return journal.find(function (e) { return isOpenJournalEntry(e) && openTradeStableSignature(e) === sig; }) || null;
+}
+
 function markDuplicates(trades) {
-  const existing = getExistingSignatures();
+  const journal = getCurrentJournal();
+  const existing = new Set(journal.map(tradeSignature));
   let dupCount = 0;
+  let mergeCount = 0;
   trades.forEach(t => {
     t.isDuplicate = existing.has(tradeSignature(t));
+    t.mergeTargetId = null;
     if (t.isDuplicate) {
       t.selected = false;
       dupCount++;
-    } else if (t.selected === undefined) {
-      t.selected = true;
+      return;
     }
+    const openMatch = findOpenTradeMatch(t, journal);
+    if (openMatch) {
+      t.mergeTargetId = openMatch.id;
+      mergeCount++;
+    }
+    if (t.selected === undefined) t.selected = true;
   });
+  markDuplicates.lastMergeCount = mergeCount;
   return dupCount;
 }
 
@@ -4518,8 +4568,12 @@ function parseMT5Text() {
   }
 
   const dupCount = markDuplicates(parsedTrades);
+  const mergeCount = markDuplicates.lastMergeCount || 0;
   if (dupCount > 0) {
     showToast(`Found ${dupCount} trade${dupCount !== 1 ? 's' : ''} already in your journal — unchecked automatically so they won't be duplicated.`, 'info', 6000);
+  }
+  if (mergeCount > 0) {
+    showToast(`Found ${mergeCount} trade${mergeCount !== 1 ? 's' : ''} you already logged as open — importing will complete ${mergeCount === 1 ? 'it' : 'them'} with these closed results instead of creating duplicates.`, 'info', 7000);
   }
 
   showImportPreview(parsedTrades);
@@ -4840,13 +4894,15 @@ function showImportPreview(trades) {
   const tbody = document.getElementById('import-preview-tbody');
 
   countEl.textContent = `${trades.length} trade${trades.length !== 1 ? 's' : ''} found`;
-  
+
   // Update selected count
   const selectedCount = trades.filter(t => t.selected !== false).length;
   const dupTotal = trades.filter(t => t.isDuplicate).length;
-  selectedCountEl.textContent = dupTotal > 0
-    ? `${selectedCount} selected · ${dupTotal} duplicate${dupTotal !== 1 ? 's' : ''} unchecked`
-    : `${selectedCount} selected`;
+  const mergeTotal = trades.filter(t => t.mergeTargetId).length;
+  const countParts = [`${selectedCount} selected`];
+  if (mergeTotal > 0) countParts.push(`${mergeTotal} will complete an open trade`);
+  if (dupTotal > 0) countParts.push(`${dupTotal} duplicate${dupTotal !== 1 ? 's' : ''} unchecked`);
+  selectedCountEl.textContent = countParts.join(' · ');
 
   tbody.innerHTML = trades.map((t, idx) => {
     const pnlClass = t.pnl > 0 ? 'pnl-positive' : t.pnl < 0 ? 'pnl-negative' : 'pnl-zero';
@@ -4858,11 +4914,15 @@ function showImportPreview(trades) {
     const checked = t.selected !== false ? 'checked' : '';
     const rowStyle = t.isDuplicate ? 'opacity:0.5;' : '';
     const dupBadge = t.isDuplicate ? ` <span style="font-size:0.65rem;color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap;">already in journal</span>` : '';
-    
+    // Sprint 22 -- this row matches a trade already logged as open (e.g.
+    // via Pre-Trade Check); importing will complete that existing entry
+    // with these real closed numbers instead of creating a duplicate.
+    const mergeBadge = (!t.isDuplicate && t.mergeTargetId) ? ` <span style="font-size:0.65rem;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:0.1rem 0.4rem;white-space:nowrap;">completes open trade</span>` : '';
+
     return `<tr style="${rowStyle}">
       <td style="text-align:center"><input type="checkbox" ${checked} onchange="toggleTradeSelection(${idx})"></td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem">${formatDate(t.date)}</td>
-      <td style="font-weight:600;font-size:0.85rem">${t.pair}${dupBadge}</td>
+      <td style="font-weight:600;font-size:0.85rem">${t.pair}${dupBadge}${mergeBadge}</td>
       <td><span class="badge badge-${t.direction || ''}" style="font-size:0.7rem">${(t.direction || '—').toUpperCase()}</span></td>
       <td><span class="badge badge-asset ${t.asset || ''}" style="font-size:0.7rem">${(t.asset || '—').toUpperCase()}</span></td>
       <td style="font-family:'DM Mono',monospace;font-size:0.78rem;text-align:center">${lots}</td>
@@ -4912,25 +4972,70 @@ function cancelImport() {
 function confirmImport() {
   // Filter only selected trades
   const selectedTrades = parsedTrades.filter(t => t.selected !== false);
-  
+
   if (selectedTrades.length === 0) {
     showToast('No trades selected. Please check at least one trade to import.', 'error');
     return;
   }
 
-  // Clean up trades (remove selected property)
-  const cleanTrades = selectedTrades.map(t => {
-    const { selected, ...rest } = t;
-    return rest;
+  // Add selected trades to current account's journal. getCurrentJournal()
+  // returns the live state.journal[...] array by reference, so mutating
+  // an existing entry in place below persists into state directly.
+  const journal = getCurrentJournal();
+  const newEntries = [];
+  let mergedCount = 0;
+  let newCount = 0;
+
+  selectedTrades.forEach(t => {
+    const { selected, isDuplicate, mergeTargetId, ...rest } = t;
+
+    // Sprint 22 stability audit -- this row matched a trade already
+    // logged as open (same pair/direction/entry/lots/date, no exit yet
+    // -- see findOpenTradeMatch). Complete THAT record with the real
+    // closed numbers Excel now has, instead of inserting a second,
+    // duplicate entry for the same real-world trade. Anything the
+    // existing entry already has (screenshots, vision fingerprint,
+    // notes, tags, checklist snapshot...) is preserved untouched --
+    // only the fields that were genuinely still unknown get filled in.
+    if (mergeTargetId) {
+      const idx = journal.findIndex(e => e.id === mergeTargetId);
+      if (idx !== -1) {
+        const existing = journal[idx];
+        journal[idx] = {
+          ...existing,
+          exit: rest.exit || existing.exit,
+          pnl: rest.pnl,
+          exitReason: existing.exitReason || rest.exitReason || '',
+          rr: existing.rr || rest.rr || '',
+          sl: existing.sl || rest.sl || '',
+          tp: existing.tp || rest.tp || '',
+          lots: existing.lots || rest.lots,
+          asset: existing.asset || rest.asset,
+        };
+        mergedCount++;
+        return;
+      }
+      // Merge target vanished (e.g. deleted since the preview was
+      // built) -- fall through and import as a normal new trade rather
+      // than silently dropping it.
+    }
+    newEntries.push(rest);
+    newCount++;
   });
 
-  // Add selected trades to current account's journal
-  const journal = getCurrentJournal();
-  state.journal[state.currentAccount] = [...cleanTrades, ...journal];
+  state.journal[state.currentAccount] = [...newEntries, ...journal];
   saveJournal();
   renderJournal();
 
-  showToast(`Successfully imported ${selectedTrades.length} trade${selectedTrades.length !== 1 ? 's' : ''} to ${state.currentAccount}!`, 'success');
+  let msg;
+  if (newCount > 0 && mergedCount > 0) {
+    msg = `Imported ${newCount} new trade${newCount !== 1 ? 's' : ''} and completed ${mergedCount} open trade${mergedCount !== 1 ? 's' : ''} with your closed results.`;
+  } else if (mergedCount > 0) {
+    msg = `Completed ${mergedCount} open trade${mergedCount !== 1 ? 's' : ''} with your closed results -- no duplicates created.`;
+  } else {
+    msg = `Successfully imported ${newCount} trade${newCount !== 1 ? 's' : ''} to ${state.currentAccount}!`;
+  }
+  showToast(msg, 'success');
   closeImportModal();
 }
 
